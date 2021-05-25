@@ -1,0 +1,269 @@
+---
+title: "Example 2"
+author: "Sara Taheri"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r, warning=FALSE, message=FALSE, include=FALSE}
+source("training_data_and_true_params.R", local = knitr::knit_global())
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+
+**Note:** First run ```trainind_data_and_true_params.R``` from the R folder.
+
+# Estimating the parameters of model when there is no hidden confounder
+
+```{r}
+round(mu,2)
+round(theta_UX,2)
+round(theta_M,2)
+round(theta_UY,2)
+round(theta_MY,2)
+```
+
+
+```{r}
+Sigma_uu
+Sigma_xx
+Sigma_mm
+Sigma_yy
+```
+
+
+## Stan model
+
+
+The Stan model is in vignette under the name of ```model_str.stan```. Let's complie the model:
+
+```{r}
+mod_with_hidden_confounder <- rstan::stan_model("model_str.stan")
+```
+
+## HMC in presecne of hidden confounder
+ 
+let's use hmc approach.
+
+```{r, echo = FALSE}
+data_list_with_hidden_confounder <- list(L=L, D=D, N =N, x = x_train, m = m_train, y = y_train)
+#If you get this error (Cluster setup failed. 2 of 2 workers failed to connect.) run these lines:
+# if (Sys.getenv("RSTUDIO") == "1" && !nzchar(Sys.getenv("RSTUDIO_TERM")) &&
+#     Sys.info()["sysname"] == "Darwin") {
+#   parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
+# }
+hmc_fit_with_hidden_confounder <- rstan::sampling(mod_with_hidden_confounder, data=data_list_with_hidden_confounder, chains = 2, iter = 3000, warmup = 1500, seed = 10, control = list(max_treedepth = 15)) #seed 10
+```
+
+
+```{r}
+stan_trace(pars = "mu", hmc_fit_with_hidden_confounder)
+```
+
+```{r}
+stan_trace(pars = "u_scale", hmc_fit_with_hidden_confounder)
+```
+
+```{r }
+stan_trace(pars = "theta_UX", hmc_fit_with_hidden_confounder)
+```
+
+```{r}
+stan_trace(pars = "theta_M", hmc_fit_with_hidden_confounder)
+```
+
+```{r}
+stan_trace(pars = "theta_UY", hmc_fit_with_hidden_confounder)
+```
+
+```{r }
+stan_trace(pars = "theta_MY", hmc_fit_with_hidden_confounder)
+```
+
+Now let's extract the samples:
+
+```{r}
+samples_whc <- rstan::extract(hmc_fit_with_hidden_confounder, c("theta_UX", "theta_M", "theta_UY", "theta_MY", "mu","u_scale"))
+
+round(colMeans(samples_whc$mu),2)
+round(mu,2)
+round(colMeans(samples_whc$theta_UX),2)
+round(theta_UX,2)
+round(colMeans(samples_whc$theta_M),2)
+round(theta_M,2)
+round(colMeans(samples_whc$theta_UY),2)
+round(theta_UY,2)
+round(colMeans(samples_whc$theta_MY),2)
+round(theta_MY,2)
+round(colMeans(samples_whc$u_scale),2)
+round(Sigma_uu,2)
+```
+
+$\theta_M$ and $\theta_MY$ parameters are estimated correctly! 
+
+```{r}
+#saveRDS(hmc_fit_with_hidden_confounder, "hmc_fit_whc_D100_N1_L1_parseed20_hmcseed10.RData")
+```
+
+
+
+# Consistency plots
+
+# True distribution
+
+Let's calculate the true mean of $P(Y | do(X = x))$ distribution,
+
+$$P(Y | do(X = x)) \text{equal in dist} N(x \theta_{XM} \theta_{MY} + \mu \theta_{UY}, \Sigma_{YY|do(x)}) = N(x \theta_{XM} \theta_{MY} + \mu \theta_{UY}, \theta_MY^T \theta_{MY} + \theta_{UY}^T \Sigma_{UU} \theta_{UY} + 1)$$
+
+```{r}
+set.seed(seed)
+# generate x1
+x = mvtnorm::rmvnorm(n = 1, mean = mu %*% theta_UX, sigma = Sigma_xx)
+mean_y_given_do_x = x %*% theta_M %*% theta_MY + mu %*% theta_UY
+var_y_given_do_x_alex = t(theta_MY) %*% theta_MY + t(theta_UY) %*% Sigma_uu %*% theta_UY + 1
+std_y_given_do_x_alex = sqrt(var_y_given_do_x_alex[1,1])
+mean_y_given_do_x
+```
+
+```{r}
+# one dimensional
+mutilated_model <- function(mu, theta_M, theta_UY, theta_MY, x, num_samples = 1000, seed = 10) {
+  set.seed(seed)
+  u = mvtnorm::rmvnorm(n = num_samples, mean = mu , sigma = diag(L)) 
+  x = x
+  m = matrix(x, nrow = num_samples, ncol = N, byrow = TRUE) %*% theta_M + matrix(rnorm(n = num_samples, mean = 0, sd = 1), nrow = num_samples, ncol = 1)
+  y = matrix(m, nrow = num_samples, ncol = 1) %*% theta_MY + matrix(u, nrow = num_samples, ncol = L) %*% theta_UY + matrix(rnorm(n = num_samples, mean = 0, sd = 1), nrow = num_samples, ncol = 1)
+  return(y)
+  #return(density(y))
+}
+```
+
+
+### HMC estimated distribution of $P(Y | do(X = x))$ with hidden confounder
+
+```{r}
+# everything one dimension
+hmc_fit_whc_D10_N1_L1_parseed20_hmcseed10 <- readRDS("hmc_fit_whc_D10_N1_L1_parseed20_hmcseed10.RData")
+hmc_fit_whc_D50_N1_L1_parseed20_hmcseed10 <- readRDS("hmc_fit_whc_D50_N1_L1_parseed20_hmcseed10.RData")
+hmc_fit_whc_D100_N1_L1_parseed20_hmcseed10 <- readRDS("hmc_fit_whc_D100_N1_L1_parseed20_hmcseed10.RData")
+samples10_hid <- rstan::extract(hmc_fit_whc_D10_N1_L1_parseed20_hmcseed10, c("theta_UX", "theta_M", "theta_UY", "theta_MY", "mu", "u_scale"))
+samples50_hid <- rstan::extract(hmc_fit_whc_D50_N1_L1_parseed20_hmcseed10, c("theta_UX", "theta_M", "theta_UY", "theta_MY", "mu", "u_scale"))
+samples100_hid <- rstan::extract(hmc_fit_whc_D100_N1_L1_parseed20_hmcseed10, c("theta_UX", "theta_M", "theta_UY", "theta_MY", "mu", "u_scale"))
+```
+
+Distribution of samples of $\mu \times \theta_UY$:
+
+```{r}
+seed = 3
+y_grey = mutilated_model(mu = mean(samples100_hid$mu),
+                        theta_M = mean(samples100_hid$theta_M),
+                        theta_UY = mean(samples100_hid$theta_UY),
+                        theta_MY = mean(samples100_hid$theta_MY),
+                        x = x,
+                        seed = seed)
+
+# y_true = mutilated_model(mu = mu,
+#                         theta_M = theta_M,
+#                         theta_UY = theta_UY,
+#                         theta_MY = theta_MY,
+#                         x = x
+#   )
+y_true = rnorm(1000, x*theta_M*theta_MY + mu*theta_UY, sqrt(theta_MY*theta_MY + theta_UY*theta_UY + 1))
+
+
+df <- data.frame(type = c(rep("True distribution",length(y_grey)),rep("LVM-based estimate",length(y_grey))),
+                 value = c(y_true, y_grey))
+pp <- df %>% ggplot( aes(x=value, fill=type, color = type)) +
+    geom_histogram(color="#e9ecef", alpha=0.6, position = 'identity', bins = 20) + 
+  theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          axis.line = element_line(colour = "black"),
+          legend.title = element_text(color = "black", size = 18, face = "bold"),
+          legend.text = element_text(color = "black", size = 20, face = "bold"),
+          axis.text=element_text(size=30),
+          axis.title.y = element_text(size=30,face="bold"),
+          axis.title.x= element_text(size=30,face="bold"),
+          axis.title=element_text(size=18,face="bold"),
+          plot.title = element_text(size = 30, hjust = 0.5, face = "bold"),
+          legend.position = "top"
+          ) +
+    guides(fill=guide_legend(title="Distribution of P(Y|do(x))", nrow=3)) +
+    xlab("Samples")
+pp
+
+#ggsave("distOverY.pdf", plot = pp, width = 7, height = 7, dpi = 300, units = "in")
+```
+
+```{r}
+indexes = sample(length(samples100_hid$mu[,,1]), 100, replace = FALSE)
+y_grey = list()
+y_blue = list()
+y_green = list()
+mu_eta = c()
+for (i in 1:length(indexes)) {
+  j = indexes[i]
+  y_grey[[i]] = mutilated_model(mu = samples10_hid$mu[j],
+                                theta_M = samples10_hid$theta_M[j],
+                                theta_UY = samples10_hid$theta_UY[j],
+                                theta_MY = samples10_hid$theta_MY[j],
+                                x = x)
+  y_blue[[i]] = mutilated_model(mu = samples50_hid$mu[j],
+                                theta_M = samples50_hid$theta_M[j],
+                                theta_UY = samples50_hid$theta_UY[j],
+                                theta_MY = samples50_hid$theta_MY[j],
+                                x = x
+  )
+  y_green[[i]] = mutilated_model(mu = samples100_hid$mu[j],
+                                theta_M = samples100_hid$theta_M[j],
+                                theta_UY = samples100_hid$theta_UY[j],
+                                theta_MY = samples100_hid$theta_MY[j],
+                                x = x)
+  #mu*theta_UY
+  #mu_eta = c(mu_eta,t(as.matrix(unlist(c(df_whc(samples200_hid)$df_mu_whc[j,])))) %*% matrix(unlist(df_whc(samples200_hid)$df_eta_whc[j,]), nrow = L, ncol = 1))
+}
+```
+
+```{r}
+par(mfrow = c(3,1))
+x_true_density <- seq(-160,-50, length = 1000)
+y_true_density <- dnorm(x_true_density, mean = mean_y_given_do_x, sd = std_y_given_do_x_alex)
+
+#pdf(file = "D65UUnObserved.pdf", width = 4, height = 4)
+plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "D = 65, U is unobserved", ylab = "", cex.lab = 2, cex.axis = 1.5, main = "", cex.main = 2)
+title(ylab="P(Y|do(x))", line=2.35, cex.lab=2)
+for (i in 1:length(indexes)) {
+  lines(density(y_grey[[i]]), lwd = 0.2, col = "grey")
+}
+
+plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "D = 80, U is unobserved", ylab = "", cex.lab = 2, cex.axis = 1.5, main = "", cex.main = 2)
+title(ylab="P(Y|do(x))", line=2.35, cex.lab=2)
+for (i in 1:length(indexes)) {
+  lines(density(y_blue[[i]]), lwd = 0.2, col = "blue")
+}
+
+#pdf(file = "D200UUnObserved.pdf", width = 7, height = 7)
+plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "D = 200, U is unobserved", ylab = "", cex.lab = 2, cex.axis = 1.5, main = "", cex.main = 2)
+title(ylab="P(Y|do(x))", line=2.35, cex.lab=2)
+for (i in 1:length(indexes)) {
+  lines(density(y_green[[i]]), lwd = 0.2, col = "green")
+}
+dev.off()
+
+```
+
+
+
+

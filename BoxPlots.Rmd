@@ -1,0 +1,367 @@
+---
+title: "Boxplots"
+author: "Sara Taheri and Robert Osazwa Ness"
+date: "1/27/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+K = 10
+library(dplyr)
+library(ggplot2)
+```
+
+# Boxplot
+
+```{r}
+#Case study 1 (plate)
+means_hmc_list <- readRDS(file = "data/Case1_MultiCause/output/means_hmc_list_Case1.RData")
+means_hmc_list_misspecify <- readRDS(file = "data/Case1_MultiCause/output/means_hmc_list_misspecify_Case1.RData")
+means_hmc_list_plug_in <- readRDS(file = "data/Case1_MultiCause/output/means_hmc_list_plug_in_Case1.RData")
+df_bp_AE1 <- data.frame("AE" = c(means_hmc_list$num_data_points_15,
+                                  means_hmc_list$num_data_points_60,
+                                  means_hmc_list$num_data_points_100,
+                                  means_hmc_list_misspecify$num_data_points_15,
+                                  means_hmc_list_misspecify$num_data_points_60,
+                                  means_hmc_list_misspecify$num_data_points_100,
+                                  means_hmc_list_plug_in$num_data_points_15,
+                                  means_hmc_list_plug_in$num_data_points_60,
+                                  means_hmc_list_plug_in$num_data_points_100
+),
+"N" = c(rep(15,K),rep(60,K),rep(100,K),
+        rep(15,K),rep(60,K),rep(100,K),
+        rep(15,K),rep(60,K),rep(100,K)
+),
+"model" = c(rep("True LVM",3*K), rep("Misspecified LVM", 3*K), rep("Plug-in", 3*K))
+)
+gg1 <- df_bp_AE1 %>% ggplot(aes(x = as.factor(N), y = AE, fill=model)) +
+  geom_boxplot(width = 0.4) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.title = element_blank(),
+        legend.text = element_blank(),
+        axis.text=element_text(size=30),
+        axis.title.y=element_text(size=30,face="bold"),
+        axis.title.x = element_text(size=30,face="bold"),
+        legend.position = "none",
+        plot.title = element_text(size = 30, hjust = 0.5, face = "bold")
+  ) +
+ xlab("number of data points") +
+    ggtitle("Multi cause model") +
+scale_fill_manual(breaks = c("True LVM", "Misspecified LVM", "Plug-in" ),
+                    values = c("#E69F00",     "#56B4E9",            "#009E73"    ))
+gg1
+#ggsave("MulticauseAE.jpg", plot = gg1, width = 7, height = 7, dpi = 300, units = "in")
+#True LVM :orange,
+#Misspecified LVM : blue,
+#Plug-in :green,
+#Dual IPW: blue,
+#Primal IPW: dark orange,
+#Augmented IPW:pink,
+#g-formula : grey
+```
+
+
+```{r}
+#Case Study 2 (napkin)
+means_hmc_list <- readRDS(file = "data/Case2_Napkin/output/means_hmc_list_Case2.RData")
+means_hmc_list_misspecify <- readRDS(file = "data/Case2_Napkin/output/means_hmc_list_misspecify_Case2.RData")
+means_hmc_list_plug_in <- readRDS(file = "data/Case2_Napkin/output/means_hmc_list_plug_in_Case2.RData")
+
+df_bp_AE2 <- data.frame("AE" = c(means_hmc_list$num_data_points_15,
+                                  means_hmc_list$num_data_points_60,
+                                  means_hmc_list$num_data_points_100,
+                                  means_hmc_list_misspecify$num_data_points_15,
+                                  means_hmc_list_misspecify$num_data_points_60,
+                                  means_hmc_list_misspecify$num_data_points_100,
+                                  means_hmc_list_plug_in$num_data_points_15,
+                                  means_hmc_list_plug_in$num_data_points_60,
+                                  means_hmc_list_plug_in$num_data_points_100
+),
+"N" = c(rep(15,K),rep(60,K),rep(100,K),
+        rep(15,K),rep(60,K),rep(100,K),
+        rep(15,K),rep(60,K),rep(100,K)
+        ),
+"model" = c(rep("True LVM",3*K), rep("Misspecified LVM", 3*K), rep("Plug-in", 3*K))
+)
+gg2 <- df_bp_AE2 %>% ggplot(aes(x = as.factor(N), y = AE, fill=model)) +
+  geom_boxplot(aes(),width = 0.4) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.title =  element_blank(),
+        legend.text =  element_blank(),
+        axis.text=element_text(size=30),
+        axis.title.y = element_text(size=30,face="bold"),
+        axis.title.x=element_text(size=30,face="bold"),
+        legend.position = "none",
+        plot.title = element_text(size = 30, hjust = 0.5, face = "bold")
+  ) +
+  xlab("number of data points") +
+  ggtitle("Napkin model") +
+ #guides(fill=guide_legend(title="", nrow=2)) +
+scale_fill_manual(breaks = c("True LVM", "Misspecified LVM", "Plug-in"),
+                    values = c("#E69F00",     "#56B4E9",            "#009E73"    ))
+gg2
+#ggsave("NapkinAE.pdf", plot = gg2, width = 7, height = 7, dpi = 300, units = "in")
+#True LVM :orange,
+#Misspecified LVM : blue,
+#Plug-in :green,
+#Dual IPW: blue,
+#Primal IPW: dark orange,
+#Augmented IPW:pink,
+#g-formula : grey
+```
+
+```{r}
+#Case study 3 (igf)
+means_hmc_list <- readRDS(file = "data/Case3_Signaling/output/means_hmc_list.RData")
+means_hmc_list_misspecify <- readRDS(file = "data/Case3_Signaling/output/means_hmc_list_misspecify.RData")
+means_hmc_list_plug_in <- readRDS(file = "data/Case3_Signaling/output/means_hmc_list_plug_in.RData")
+df_p_ipw_Case3 <- read.csv(file="data/Case3_Signaling/output/df_p_ipw_Case3.csv")
+df_d_ipw_Case3 <- read.csv(file="data/Case3_Signaling/output/df_d_ipw_Case3.csv")
+df_bp_AE3 <- data.frame("AE" = c(means_hmc_list$num_data_points_30,
+                                  means_hmc_list$num_data_points_60,
+                                  means_hmc_list$num_data_points_100,
+                                  means_hmc_list_misspecify$num_data_points_30,
+                                  means_hmc_list_misspecify$num_data_points_60,
+                                  means_hmc_list_misspecify$num_data_points_100,
+                                  # means_hmc_list_plug_in$num_data_points_30,
+                                  # means_hmc_list_plug_in$num_data_points_60,
+                                  # means_hmc_list_plug_in$num_data_points_100,
+                                  df_p_ipw_Case3$X30,
+                                  df_p_ipw_Case3$X60,
+                                  df_p_ipw_Case3$X100,
+                                  df_d_ipw_Case3$X30,
+                                  df_d_ipw_Case3$X60,
+                                  df_d_ipw_Case3$X100
+),
+"N" = c(rep(30,K),rep(60,K),rep(100,K),
+        rep(30,K),rep(60,K),rep(100,K),
+        #rep(30,K),rep(60,K),rep(100,K),
+        rep(30,K),rep(60,K),rep(100,K),
+        rep(30,K),rep(60,K),rep(100,K)
+        ),
+"model" = c(rep("True LVM",3*K),
+            rep("Misspecified LVM", 3*K),
+            #rep("Plug-in", 3*K),
+            rep("PIPW", 3*K),
+            rep("DIPW", 3*K))
+)
+df_bp_AE3 = df_bp_AE3[-56,] #remove outlier
+gg3 <- df_bp_AE3 %>% ggplot(aes(x = as.factor(N), y = AE,fill=model)) +
+  geom_boxplot(aes(),width = 0.4) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.title = element_blank(),
+        legend.text = element_blank(),
+        axis.text=element_text(size=30),
+        axis.title.y = element_text(size=30,face="bold"),
+        axis.title.x= element_text(size=30,face="bold"),
+        legend.position = "none",
+        plot.title = element_text(size = 30, hjust = 0.5, face = "bold")
+  ) +
+  xlab("number of data points") +
+    ggtitle("Signaling model") + 
+ #guides(fill=guide_legend(title="",nrow=3)) #+
+scale_fill_manual(breaks = c("True LVM", "Misspecified LVM",  "DIPW", "PIPW"),
+                    values = c("#E69F00",     "#56B4E9",       "#0072B2", "#D55E00"    ))
+gg3
+#ggsave("SignalingAE.jpg", plot = gg3, width = 7, height = 7, dpi = 300, units = "in")
+#True LVM :orange,
+#Misspecified LVM : blue,
+#Plug-in :green,
+#Dual IPW: blue,
+#Primal IPW: dark orange,
+#Augmented IPW:pink,
+#g-formula : grey
+
+```
+
+```{r}
+#Case study 4 (covid)
+means_hmc_list_sil6r <- readRDS(file = "data/Case4_Covid_correct/output/means_hmc_list_Case4_sil6r.RData")
+means_hmc_list_misspecify_sil6r <- readRDS(file = "data/Case4_Covid_correct/output/means_hmc_list_misspecify_Case4_sil6r.RData")
+means_hmc_list_plug_in_sil6r <- readRDS(file = "data/Case4_Covid_correct/output/means_hmc_list_plug_in_Case4_sil6r.RData")
+df_aipw_case4_sil6r <- read.csv(file="data/Case4_Covid_correct/output/df_aipw_case4_sil6r.csv")
+df_gformula_case4_sil6r <- read.csv(file="data/Case4_Covid_correct/output/df_gformula_case4_sil6r.csv")
+df_bp_AE4_sil6r <- data.frame("AE" = c(means_hmc_list_sil6r$num_data_points_60,
+                                  means_hmc_list_sil6r$num_data_points_100,
+                                  means_hmc_list_sil6r$num_data_points_200,
+                                  means_hmc_list_misspecify_sil6r$num_data_points_60,
+                                  means_hmc_list_misspecify_sil6r$num_data_points_100,
+                                  means_hmc_list_misspecify_sil6r$num_data_points_200,
+                                  means_hmc_list_plug_in_sil6r$num_data_points_60,
+                                  means_hmc_list_plug_in_sil6r$num_data_points_100,
+                                  means_hmc_list_plug_in_sil6r$num_data_points_200,
+                                  df_gformula_case4_sil6r$X60,
+                                  df_gformula_case4_sil6r$X100,
+                                  df_gformula_case4_sil6r$X200,
+                                  df_aipw_case4_sil6r$X60,
+                                  df_aipw_case4_sil6r$X100,
+                                  df_aipw_case4_sil6r$X200
+                                  
+),
+"N" = c(rep(60,K),rep(100,K),rep(200,K),#rep(140,K),rep(200,K),
+        rep(60,K),rep(100,K),rep(200,K),#rep(140,K),rep(200,K),
+        rep(60,K),rep(100,K),rep(200,K),#rep(140,K),rep(200,K),
+        rep(60,K),rep(100,K),rep(200,K),#rep(140,K),rep(200,K),
+        rep(60,K),rep(100,K),rep(200,K)#,rep(140,K),rep(200,K)
+        ),
+"model" = c(rep("True LVM",3*K), rep("Misspecified LVM", 3*K), rep("Plug-in", 3*K), rep("g-formula", 3*K), rep("AIPW", 3*K))
+)
+gg4_sil6r <- df_bp_AE4_sil6r %>% ggplot(aes(x = as.factor(N), y = AE, fill=model)) +
+  geom_boxplot(aes(),width = 0.4) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.title = element_blank(),
+        legend.text = element_blank(),
+        axis.text=element_text(size=30),
+        axis.title.y = element_text(size=30,face="bold"),
+        axis.title.x= element_text(size=30,face="bold"),
+        legend.position = "none",
+        plot.title = element_text(size = 30, hjust = 0.5, face = "bold")
+  ) +
+  xlab("number of data points") +
+  ggtitle("Covid model, query \n E[cytokine | do(sIL6Ra= 20)]") +
+  #ggtitle("Covid model, query \n E[cytokine | do(sIL6R" * alpha ~ ")= 20)]")
+# guides(fill=guide_legend(title="", nrow=3)) +
+scale_fill_manual(breaks = c("True LVM", "Misspecified LVM", "Plug-in", "AIPW", "g-formula"),
+                    values = c("#E69F00",     "#56B4E9",            "#009E73",    "#CC79A7",       "#999999"     ))
+#True LVM :orange,
+#Misspecified LVM : blue,
+#Plug-in :green,
+#Dual IPW: blue,
+#Primal IPW: dark orange,
+#Augmented IPW:pink,
+#g-formula : grey
+gg4_sil6r
+ggsave("CovidSil6rAE.pdf", plot = gg4_sil6r, width = 7, height = 7, dpi = 300, units = "in")
+```
+
+```{r}
+#Case study 4 (covid)
+means_hmc_list_egfr <- readRDS(file = "data/Case4_Covid_correct/output/means_hmc_list_Case4_egfr.RData")
+means_hmc_list_misspecify_egfr <- readRDS(file = "data/Case4_Covid_correct/output/means_hmc_list_misspecify_Case4_egfr.RData")
+means_hmc_list_plug_in_egfr <- readRDS(file = "data/Case4_Covid_correct/output/means_hmc_list_plug_in_Case4_egfr_seed2.RData")
+df_aipw_case4_egfr <- read.csv(file="data/Case4_Covid_correct/output/df_aipw_case4_egfr.csv")
+df_gformula_case4_egfr <- read.csv(file="data/Case4_Covid_correct/output/df_gformula_case4_egfr.csv")
+df_bp_AE4_egfr <- data.frame("AE" = c(means_hmc_list_egfr$num_data_points_60,
+                                  means_hmc_list_egfr$num_data_points_100,
+                                  means_hmc_list_egfr$num_data_points_200,
+                                  means_hmc_list_misspecify_egfr$num_data_points_60,
+                                  means_hmc_list_misspecify_egfr$num_data_points_100,
+                                  means_hmc_list_misspecify_egfr$num_data_points_200,
+                                  means_hmc_list_plug_in_egfr$num_data_points_60,
+                                  means_hmc_list_plug_in_egfr$num_data_points_100,
+                                  means_hmc_list_plug_in_egfr$num_data_points_200,
+                                  df_gformula_case4_egfr$X60,
+                                  df_gformula_case4_egfr$X100,
+                                  df_gformula_case4_egfr$X200,
+                                  df_aipw_case4_egfr$X60,
+                                  df_aipw_case4_egfr$X100,
+                                  df_aipw_case4_egfr$X200
+                                  
+),
+"N" = c(rep(60,K),rep(100,K),rep(200,K),#rep(140,K),rep(200,K),
+        rep(60,K),rep(100,K),rep(200,K),#rep(140,K),rep(200,K),
+        rep(60,K),rep(100,K),rep(200,K),#rep(140,K),rep(200,K),
+        rep(60,K),rep(100,K),rep(200,K),#rep(140,K),rep(200,K),
+        rep(60,K),rep(100,K),rep(200,K)#,rep(140,K),rep(200,K)
+        ),
+"model" = c(rep("True LVM",3*K), rep("Misspecified LVM", 3*K), rep("Plug-in", 3*K), rep("g-formula", 3*K), rep("AIPW", 3*K))
+)
+gg4_egfr <- df_bp_AE4_egfr %>% ggplot(aes(x = as.factor(N), y = AE, fill=model)) +
+  geom_boxplot(aes(),width = 0.4) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.title = element_blank(),
+        legend.text = element_blank(),
+        axis.text=element_text(size=30),
+        axis.title.y = element_text(size=30,face="bold"),
+        axis.title.x= element_text(size=30,face="bold"),
+        legend.position = "none",
+        plot.title = element_text(size = 30, hjust = 0.5, face = "bold")
+  ) +
+  xlab("number of data points") +
+  ggtitle("Covid model, query \n E[cytokine | do(EGFR= 20)]") +
+# guides(fill=guide_legend(title="", nrow=3)) +
+scale_fill_manual(breaks = c("True LVM", "Misspecified LVM", "Plug-in", "AIPW", "g-formula"),
+                    values = c("#E69F00",     "#56B4E9",            "#009E73",    "#CC79A7",       "#999999"     ))
+#True LVM :orange,
+#Misspecified LVM : blue,
+#Plug-in :green,
+#Dual IPW: blue,
+#Primal IPW: dark orange,
+#Augmented IPW:pink,
+#g-formula : grey
+gg4_egfr
+ggsave("CovidEGFRAE.pdf", plot = gg4_egfr, width = 7, height = 7, dpi = 300, units = "in")
+```
+
+# Combine all case studies together
+
+```{r}
+leg <- data.frame("case" = c(rep("Case 1",nrow(df_bp_AE1)),
+                             #rep("Case 2",nrow(df_bp_AE2)),
+                             rep("Case 3",nrow(df_bp_AE3)),
+                             rep("Case 4-1",nrow(df_bp_AE4_sil6r)),
+                             rep("Case 4-2",nrow(df_bp_AE4_egfr))
+                             )
+                  )
+df_bp_AE <- dplyr::bind_rows(df_bp_AE1,
+                             #df_bp_AE2,
+                             df_bp_AE3,
+                             df_bp_AE4_sil6r, df_bp_AE4_egfr)
+df_bp_AE <- dplyr::bind_cols(df_bp_AE, leg)
+#df_bp_AE <- df_bp_AE[-236,] #removed the outlier from IGF case
+```
+
+```{r}
+gg <- df_bp_AE %>% ggplot(aes(x = as.factor(N), y = AE, fill=model)) +
+  geom_boxplot(aes(),width = 1) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.title = element_blank(),
+        legend.text = element_text(color = "black", size = 24),
+        axis.text=element_text(size=30),
+        axis.title=element_text(size=20,face="bold"),
+        legend.position = "top",
+        strip.text = element_text(size=30),
+        strip.text.x = element_blank(),
+        legend.key.width = unit(1.4, "cm"),
+        legend.key.height = unit(2, "cm"),
+        legend.spacing.x = unit(0.5, 'cm'),
+        legend.spacing.y = unit(4.0, 'cm'),
+  ) +
+  xlab("number of data points")  +
+   guides(fill=guide_legend(title="", nrow=1)) +
+   facet_wrap( ~ case, ncol=5, scales = "free") +
+scale_fill_manual(breaks = c("True LVM", "Misspecified LVM", "Plug-in", "AIPW", "g-formula", "DIPW", "PIPW"),
+                    values = c("#E69F00",     "#56B4E9",         "#009E73",    "#CC79A7",       "#999999", "#0072B2", "#D55E00"     ))
+gg
+
+
+#True LVM :orange,
+#Misspecified LVM : blue,
+#Plug-in :green,
+#Dual IPW: blue,
+#Primal IPW: dark orange,
+#Augmented IPW:pink,
+#g-formula : grey
+ggsave("CovidCaseStudies.jpg", plot = gg, width = 17, height = 8, dpi = 300, units = "in")
+
+```
+

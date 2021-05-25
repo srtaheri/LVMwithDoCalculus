@@ -1,0 +1,1926 @@
+---
+title: "Case study 3: Covid case study"
+author: "Sara Taheri"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(rstan)
+library(ggplot2)
+```
+
+We investigate on K=10 different datasets and for 60, 100 and 200 number of data points.
+
+```{r}
+ndp = c(60,100,200)
+K = 10
+startSeed = 1
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+Let's set the parameters for generating data:
+
+```{r}
+mu_U1_SARS_Ang = 22
+sigma_U1_SARS_Ang = 10
+
+mu_U2_SARS_Ang = 22
+sigma_U2_SARS_Ang = 10
+
+beta0_U_SARS_AngToSARS_COV2 = -2
+beta_U1_SARS_AngToSARS_COV2 = 0.05 #positive
+beta_U2_SARS_AngToSARS_COV2 = 0.06 #positive
+
+beta0_SARS_COV2ToACE2 = 20
+beta_SARS_COV2ToACE2 = -0.1 #negative
+
+beta0_ACE2_and_U_SARS_Ang_ToAng = 25
+beta_ACE2ToAng = -0.8 #negative
+beta_U1_SARS_AngToAng = 0.5 #positive
+beta_U2_SARS_AngToAng = 0.6 #positive
+
+beta0_AngToAGTR1 = -1.5
+beta_AngToAGTR1 = 0.08
+
+mu_U1_ADAM17_Sil6r = 25
+sigma_U1_ADAM17_Sil6r= 10
+
+mu_U2_ADAM17_Sil6r = 25
+sigma_U2_ADAM17_Sil6r= 10
+
+beta0_AGTR1_UToADAM17 = -3.8
+beta_AGTR1ToADAM17 = 0.04
+beta_U1_ADAM17_Sil6rToADAM17 = 0.04
+beta_U2_ADAM17_Sil6rToADAM17 = 0.03
+
+mu_Toci = 45
+sigma_Toci = 10
+
+beta0_ADAM17_U_TociToSil6r = -3
+beta_ADAM17ToSil6r = 0.03
+beta_U1ToSil6r = 0.05
+beta_U2ToSil6r = 0.06
+beta_TociToSil6r = -0.04 #negative
+
+mu_U_EGF_EGFR = 50
+sigma_U_EGF_EGFR = 10
+
+beta0_ADAM17_UToEGF = -3
+beta_ADAM17ToEGF = 0.03
+beta_UToEGF = 0.05
+
+mu_U_EGFR_TNF = 45
+sigma_U_EGFR_TNF = 10
+
+beta0_ADAM17_UToTNF = -4.1
+beta_ADAM17ToTNF = 0.05
+beta_UToTNF = 0.06
+
+mu_U_EGFR_IL6STAT3 = 40
+sigma_U_EGFR_IL6STAT3 = 10
+
+mu_Gefi = 40
+sigma_Gefi = 10
+
+beta0_EGF_3U = -6
+beta_EGFToEGFR = 0.03
+beta_U1ToEGFR = 0.05
+beta_U2ToEGFR = 0.02
+beta_U3ToEGFR = 0.04
+beta_GefiToEGFR = -0.04 #negative
+
+mu_U1_PRR_NFKB = 20
+sigma_U1_PRR_NFKB = 10
+
+mu_U2_PRR_NFKB = 20
+sigma_U2_PRR_NFKB = 10
+
+beta0_SARS_UPRR = -3.4
+beta_SARS_COV2ToPRR = 0.05
+beta_U1ToPRR = 0.02
+beta_U2ToPRR = 0.03
+
+beta0_PRR_U_EGFR_TNFToNFKB = -5
+beta_PRRToNFKB = 0.01
+beta_U1ToNFKB = 0.02
+beta_U2ToNFKB = 0.03
+beta_EGFRToNFKB = 0.02
+beta_TNFToNFKB = 0.03
+
+beta0_NFKB_IL6STSTToIL6STAT3 = -4.6
+beta_UToIL6STAT3 = 0.05
+beta_Sil6rToIL6STAT3 = 0.04
+
+beta0_NFKB_IL6STATToIL6AMP = -3.7
+beta_NFKBToIL6AMP = 0.02
+beta_IL6STAT3ToIL6AMP = 0.03
+
+beta0_IL6AMPTocytok = -2
+beta_IL6AMPTocytok = 0.06
+```
+
+
+# Create observational data for Covid model
+
+```{r}
+obs_data_list <- list()
+data_count = 1
+for (seed in startSeed:(startSeed+K-1)) {
+  set.seed(seed)
+  U1_SARS_Ang <- rnorm(500, mu_U1_SARS_Ang, sigma_U1_SARS_Ang)
+  U2_SARS_Ang <- rnorm(500, mu_U2_SARS_Ang, sigma_U2_SARS_Ang)
+  SARS_COV2 = 100 / (1 + exp(-beta0_U_SARS_AngToSARS_COV2 -U1_SARS_Ang * beta_U1_SARS_AngToSARS_COV2 -U2_SARS_Ang * beta_U2_SARS_AngToSARS_COV2))
+  Toci <- rnorm(500, mu_Toci, sigma_Toci)
+  ACE2 = beta0_SARS_COV2ToACE2 + SARS_COV2 * beta_SARS_COV2ToACE2
+  Ang = beta0_ACE2_and_U_SARS_Ang_ToAng + ACE2 * beta_ACE2ToAng + U1_SARS_Ang *beta_U1_SARS_AngToAng + U2_SARS_Ang *beta_U2_SARS_AngToAng
+  AGTR1 = 100 / (1 + exp(-beta0_AngToAGTR1 - Ang * beta_AngToAGTR1))
+  U1_ADAM17_Sil6r <- rnorm(500, mu_U1_ADAM17_Sil6r, sigma_U1_ADAM17_Sil6r)
+  U2_ADAM17_Sil6r <- rnorm(500, mu_U2_ADAM17_Sil6r, sigma_U2_ADAM17_Sil6r)
+  ADAM17 = 100 / (1 + exp(-beta0_AGTR1_UToADAM17 - AGTR1 * beta_AGTR1ToADAM17 - U1_ADAM17_Sil6r * beta_U1_ADAM17_Sil6rToADAM17 - U2_ADAM17_Sil6r * beta_U2_ADAM17_Sil6rToADAM17))
+  Sil6r = 100 / (1 + exp(-beta0_ADAM17_U_TociToSil6r - ADAM17 * beta_ADAM17ToSil6r - U1_ADAM17_Sil6r * beta_U1ToSil6r - U2_ADAM17_Sil6r * beta_U2ToSil6r - Toci * beta_TociToSil6r))
+  U_EGF_EGFR = rnorm(500, mu_U_EGF_EGFR, sigma_U_EGF_EGFR)
+  EGF = 100 / (1 + exp(-beta0_ADAM17_UToEGF - ADAM17 * beta_ADAM17ToEGF - U_EGF_EGFR * beta_UToEGF))
+  U_EGFR_TNF = rnorm(500, mu_U_EGFR_TNF, sigma_U_EGFR_TNF)
+  TNF = 100 / (1 + exp(-beta0_ADAM17_UToTNF - ADAM17 * beta_ADAM17ToTNF - U_EGFR_TNF * beta_UToTNF))
+  U_EGFR_IL6STAT3 <- rnorm(500, mu_U_EGFR_IL6STAT3, sigma_U_EGFR_IL6STAT3)
+  Gefi <- rnorm(500, mu_Gefi, sigma_Gefi)
+  EGFR = 100 / (1 + exp(-beta0_EGF_3U - EGF * beta_EGFToEGFR - U_EGFR_IL6STAT3 * beta_U1ToEGFR - U_EGFR_TNF * beta_U2ToEGFR  - U_EGF_EGFR * beta_U3ToEGFR - Gefi * beta_GefiToEGFR))
+  U1_PRR_NFKB <- rnorm(500, mu_U1_PRR_NFKB, sigma_U1_PRR_NFKB)
+  U2_PRR_NFKB <- rnorm(500, mu_U2_PRR_NFKB, sigma_U2_PRR_NFKB)
+  PRR = 100 / (1 + exp(-beta0_SARS_UPRR - SARS_COV2 * beta_SARS_COV2ToPRR - U1_PRR_NFKB * beta_U1ToPRR - U2_PRR_NFKB * beta_U2ToPRR))
+  NFKB = 100 / (1 + exp(-beta0_PRR_U_EGFR_TNFToNFKB - PRR * beta_PRRToNFKB - U1_PRR_NFKB * beta_U1ToNFKB  - U2_PRR_NFKB * beta_U2ToNFKB- EGFR * beta_EGFRToNFKB  - TNF * beta_TNFToNFKB))
+  IL6STAT3 = 100 / (1 + exp(-beta0_NFKB_IL6STSTToIL6STAT3 - U_EGFR_IL6STAT3 * beta_UToIL6STAT3 - Sil6r * beta_Sil6rToIL6STAT3))
+  IL6AMP = 100 / (1 + exp(-beta0_NFKB_IL6STATToIL6AMP - NFKB * beta_NFKBToIL6AMP - IL6STAT3 * beta_IL6STAT3ToIL6AMP))
+  #cytok = 100 / (1 + exp(-beta0_IL6AMPTocytok - IL6AMP * beta_IL6AMPTocytok))
+  p_cytok = 1 / (1 + exp(-beta0_IL6AMPTocytok - IL6AMP * beta_IL6AMPTocytok))
+  cytok = rbinom(n = 500, size = 1, prob = p_cytok)
+  observational_data <- data.frame("U1_SARS_Ang" = U1_SARS_Ang
+                                   ,"U2_SARS_Ang" = U2_SARS_Ang
+                  ,"SARS_COV2" = SARS_COV2
+                  ,"ACE2" = ACE2
+                  ,"Ang" = Ang
+                  ,"AGTR1" = AGTR1
+                  ,"U1_ADAM17_Sil6r" = U1_ADAM17_Sil6r
+                  ,"U2_ADAM17_Sil6r" = U2_ADAM17_Sil6r
+                  ,"ADAM17" = ADAM17
+                  ,"Toci" = Toci
+                  ,"Sil6r" = Sil6r
+                  ,"U_EGF_EGFR" = U_EGF_EGFR
+                  ,"EGF" = EGF
+                  ,"U_EGFR_TNF" = U_EGFR_TNF
+                  ,"TNF" = TNF
+                  ,"U_EGFR_IL6STAT3" = U_EGFR_IL6STAT3
+                  ,"Gefi" = Gefi
+                  ,"EGFR" = EGFR
+                  ,"U1_PRR_NFKB" = U1_PRR_NFKB
+                  ,"U2_PRR_NFKB" = U2_PRR_NFKB
+                  ,"PRR" = PRR
+                  ,"NFKB" = NFKB
+                  ,"IL6STAT3" = IL6STAT3
+                  ,"IL6AMP" = IL6AMP
+                  ,"cytok" = cytok)
+  obs_data_list[[data_count]] <- observational_data
+  data_count = data_count + 1
+}
+```
+
+
+# Create interventional data for Covid model when Sil6ra is 20
+
+```{r}
+intv_data_list_sil6r <- list()
+data_count = 1
+for (seed in startSeed:(startSeed+K-1)) {
+  set.seed(seed)
+  U1_SARS_Ang <- obs_data_list[[data_count]]$U1_SARS_Ang
+  U2_SARS_Ang <- obs_data_list[[data_count]]$U2_SARS_Ang
+  SARS_COV2 = obs_data_list[[data_count]]$SARS_COV2
+  ACE2 = obs_data_list[[data_count]]$ACE2
+  Ang = obs_data_list[[data_count]]$Ang
+  AGTR1 = obs_data_list[[data_count]]$AGTR1
+  U1_ADAM17_Sil6r <- obs_data_list[[data_count]]$U1_ADAM17_Sil6r
+  U2_ADAM17_Sil6r <- obs_data_list[[data_count]]$U2_ADAM17_Sil6r
+  ADAM17 = obs_data_list[[data_count]]$ADAM17
+  Toci =obs_data_list[[data_count]]$Toci
+  Sil6r = 20
+  U_EGF_EGFR = obs_data_list[[data_count]]$U_EGF_EGFR
+  EGF = obs_data_list[[data_count]]$EGF
+  U_EGFR_TNF = obs_data_list[[data_count]]$U_EGFR_TNF
+  TNF = obs_data_list[[data_count]]$TNF
+  U_EGFR_IL6STAT3 <- obs_data_list[[data_count]]$U_EGFR_IL6STAT3
+  Gefi = obs_data_list[[data_count]]$Gefi
+  EGFR = obs_data_list[[data_count]]$EGFR
+  U1_PRR_NFKB <- obs_data_list[[data_count]]$U1_PRR_NFKB
+  U2_PRR_NFKB <- obs_data_list[[data_count]]$U2_PRR_NFKB
+  PRR = obs_data_list[[data_count]]$PRR
+  NFKB = obs_data_list[[data_count]]$NFKB
+  IL6STAT3 = 100 / (1 + exp(-beta0_NFKB_IL6STSTToIL6STAT3 - U_EGFR_IL6STAT3 * beta_UToIL6STAT3 - Sil6r * beta_Sil6rToIL6STAT3))
+  IL6AMP = 100 / (1 + exp(-beta0_NFKB_IL6STATToIL6AMP - NFKB * beta_NFKBToIL6AMP - IL6STAT3 * beta_IL6STAT3ToIL6AMP))
+  #cytok = 100 / (1 + exp(-beta0_IL6AMPTocytok - IL6AMP * beta_IL6AMPTocytok))
+  p_cytok = 1 / (1 + exp(-beta0_IL6AMPTocytok - IL6AMP * beta_IL6AMPTocytok))
+  cytok = rbinom(n = 500, size = 1, prob = p_cytok)
+  
+  interventional_data_sil6r <- data.frame("U1_SARS_Ang" = U1_SARS_Ang
+                                          ,"U2_SARS_Ang" = U2_SARS_Ang
+                                          ,"SARS_COV2" = SARS_COV2
+                                          ,"ACE2" = ACE2
+                                          ,"Ang" = Ang
+                                          ,"AGTR1" = AGTR1
+                                          ,"U1_ADAM17_Sil6r" = U1_ADAM17_Sil6r
+                                          ,"U2_ADAM17_Sil6r" = U2_ADAM17_Sil6r
+                                          ,"ADAM17" = ADAM17
+                                          ,"Toci" = Toci
+                                          ,"Sil6r" = 20
+                                          ,"U_EGF_EGFR" = U_EGF_EGFR
+                                          ,"EGF" = EGF
+                                          ,"U_EGFR_TNF" = U_EGFR_TNF
+                                          ,"TNF" = TNF
+                                          ,"U_EGFR_IL6STAT3" = U_EGFR_IL6STAT3
+                                          ,"Gefi" = Gefi
+                                          ,"EGFR" = EGFR
+                                          ,"U1_PRR_NFKB" = U1_PRR_NFKB
+                                          ,"U2_PRR_NFKB" = U2_PRR_NFKB
+                                          ,"PRR" = PRR
+                                          ,"NFKB" = NFKB
+                                          ,"IL6STAT3" = IL6STAT3
+                                          ,"IL6AMP" = IL6AMP
+                                          ,"cytok" = cytok)
+  intv_data_list_sil6r[[data_count]] <- interventional_data_sil6r
+  data_count = data_count + 1
+}
+#54 parameters in total
+```
+
+# Create interventional data for Covid model when we intervene on EGFR = 20 
+
+```{r}
+intv_data_list_egfr <- list()
+data_count = 1
+for (seed in startSeed:(startSeed+K-1)) {
+  set.seed(seed)
+  U1_SARS_Ang <- obs_data_list[[data_count]]$U1_SARS_Ang
+  U2_SARS_Ang <- obs_data_list[[data_count]]$U2_SARS_Ang
+  SARS_COV2 = obs_data_list[[data_count]]$SARS_COV2
+  ACE2 = obs_data_list[[data_count]]$ACE2
+  Ang = obs_data_list[[data_count]]$Ang
+  AGTR1 = obs_data_list[[data_count]]$AGTR1
+  U1_ADAM17_Sil6r <- obs_data_list[[data_count]]$U1_ADAM17_Sil6r
+  U2_ADAM17_Sil6r <- obs_data_list[[data_count]]$U2_ADAM17_Sil6r   
+  ADAM17 = obs_data_list[[data_count]]$ADAM17
+  Toci =obs_data_list[[data_count]]$Toci
+  Sil6r = obs_data_list[[data_count]]$Sil6r
+  U_EGF_EGFR = obs_data_list[[data_count]]$U_EGF_EGFR
+  EGF = obs_data_list[[data_count]]$EGF
+  U_EGFR_TNF = obs_data_list[[data_count]]$U_EGFR_TNF
+  TNF = obs_data_list[[data_count]]$TNF
+  U_EGFR_IL6STAT3 <- obs_data_list[[data_count]]$U_EGFR_IL6STAT3
+  Gefi = obs_data_list[[data_count]]$Gefi
+  U1_PRR_NFKB <- obs_data_list[[data_count]]$U1_PRR_NFKB
+  U2_PRR_NFKB <- obs_data_list[[data_count]]$U2_PRR_NFKB
+  PRR = obs_data_list[[data_count]]$PRR
+  EGFR = 20
+  NFKB = 100 / (1 + exp(-beta0_PRR_U_EGFR_TNFToNFKB - PRR * beta_PRRToNFKB - U1_PRR_NFKB * beta_U1ToNFKB  - U2_PRR_NFKB * beta_U2ToNFKB - EGFR * beta_EGFRToNFKB  - TNF * beta_TNFToNFKB))
+  IL6STAT3 = obs_data_list[[data_count]]$IL6STAT3
+  IL6AMP = 100 / (1 + exp(-beta0_NFKB_IL6STATToIL6AMP - NFKB * beta_NFKBToIL6AMP - IL6STAT3 * beta_IL6STAT3ToIL6AMP))
+  #cytok = 100 / (1 + exp(-beta0_IL6AMPTocytok - IL6AMP * beta_IL6AMPTocytok))
+  p_cytok = 1 / (1 + exp(-beta0_IL6AMPTocytok - IL6AMP * beta_IL6AMPTocytok))
+  cytok = rbinom(n = 500, size = 1, prob = p_cytok)
+  
+  interventional_data_egfr <- data.frame("U1_SARS_Ang" = U1_SARS_Ang
+                                         ,"U2_SARS_Ang" = U2_SARS_Ang
+                                         ,"SARS_COV2" = SARS_COV2
+                                         ,"ACE2" = ACE2
+                                         ,"Ang" = Ang
+                                         ,"AGTR1" = AGTR1
+                                         ,"U1_ADAM17_Sil6r" = U1_ADAM17_Sil6r
+                                         ,"U2_ADAM17_Sil6r" = U2_ADAM17_Sil6r
+                                         ,"ADAM17" = ADAM17
+                                         ,"Toci" = Toci
+                                         ,"Sil6r" = Sil6r
+                                         ,"U_EGF_EGFR" = U_EGF_EGFR
+                                         ,"EGF" = EGF
+                                         ,"U_EGFR_TNF" = U_EGFR_TNF
+                                         ,"TNF" = TNF
+                                         ,"U_EGFR_IL6STAT3" = U_EGFR_IL6STAT3
+                                         ,"Gefi" = Gefi
+                                         ,"EGFR" = EGFR
+                                         ,"U1_PRR_NFKB" = U1_PRR_NFKB
+                                         ,"U2_PRR_NFKB" = U2_PRR_NFKB
+                                         ,"PRR" = PRR
+                                         ,"NFKB" = NFKB
+                                         ,"IL6STAT3" = IL6STAT3
+                                         ,"IL6AMP" = IL6AMP
+                                         ,"cytok" = cytok)
+  intv_data_list_egfr[[data_count]] <- interventional_data_egfr
+  data_count = data_count + 1
+}
+#54 parameters in total
+```
+
+```{r}
+#write.csv(intv_data_list[[1]], file = "data/Case3/obs_intv_data/intv_data1_Case3.csv")
+```
+
+# True Stan model in presence of latent variables
+
+```{r}
+model_str_covid <- "
+    data {
+        int D;
+        vector[D] SARS_COV2;
+        vector[D] ACE2;
+        vector[D] Ang;
+        vector[D] AGTR1;
+        vector[D] ADAM17;
+        vector[D] Toci;
+        vector[D] Sil6r;
+        vector[D] EGF;
+        vector[D] TNF;
+        vector[D] Gefi;
+        vector[D] EGFR;
+        vector[D] PRR;
+        vector[D] NFKB;
+        vector[D] IL6STAT3;
+        vector[D] IL6AMP;
+        int<lower=0,upper=1> cytok[D];
+    }
+    parameters {
+       real<lower=0> mu_U1_SARS_Ang; 
+       real<lower=0> sigma_U1_SARS_Ang;
+       real<lower=0> mu_U2_SARS_Ang; 
+       real<lower=0> sigma_U2_SARS_Ang;
+       real beta0_U_SARS_AngToSARS_COV2;
+       real<lower=0> beta_U1_SARS_AngToSARS_COV2;
+       real<lower=0> beta_U2_SARS_AngToSARS_COV2;
+       real<lower=10, upper=30> beta0_SARS_COV2ToACE2;
+       real<upper=0> beta_SARS_COV2ToACE2;
+       real<lower=10, upper=30> beta0_ACE2_and_U_SARS_Ang_ToAng;
+       real<upper=0> beta_ACE2ToAng;
+       real<lower=0> beta_U1_SARS_AngToAng;
+       real<lower=0> beta_U2_SARS_AngToAng;
+       real beta0_AngToAGTR1;
+       real<lower=0> beta_AngToAGTR1;
+       real<lower=0> mu_U1_ADAM17_Sil6r;
+       real<lower=0> sigma_U1_ADAM17_Sil6r;
+       real<lower=0> mu_U2_ADAM17_Sil6r;
+       real<lower=0> sigma_U2_ADAM17_Sil6r;
+       real beta0_AGTR1_UToADAM17;
+       real<lower=0> beta_AGTR1ToADAM17;
+       real<lower=0> beta_U1_ADAM17_Sil6rToADAM17;
+       real<lower=0> beta_U2_ADAM17_Sil6rToADAM17;
+       real<lower=0> mu_Toci;
+       real<lower=0> sigma_Toci;
+       real beta0_ADAM17_U_TociToSil6r;
+       real<lower=0> beta_ADAM17ToSil6r;
+       real<lower=0> beta_U1ToSil6r;
+       real<lower=0> beta_U2ToSil6r;
+       real<upper=0> beta_TociToSil6r;
+       real<lower=0> mu_U_EGF_EGFR;
+       real<lower=0> sigma_U_EGF_EGFR;
+       real beta0_ADAM17_UToEGF;
+       real<lower=0> beta_ADAM17ToEGF;
+       real<lower=0> beta_UToEGF;
+       real<lower=0> mu_U_EGFR_TNF;
+       real<lower=0> sigma_U_EGFR_TNF;
+       real beta0_ADAM17_UToTNF;
+       real<lower=0> beta_ADAM17ToTNF;
+       real<lower=0> beta_UToTNF;
+       real<lower=0> mu_U_EGFR_IL6STAT3;
+       real<lower=0> sigma_U_EGFR_IL6STAT3;
+       real beta0_EGF_3U;
+       real<lower=0> mu_Gefi;
+       real<lower=0> sigma_Gefi;
+       real<lower=0> beta_EGFToEGFR;
+       real<lower=0> beta_U1ToEGFR;
+       real<lower=0> beta_U2ToEGFR;
+       real<lower=0> beta_U3ToEGFR;
+       real<upper=0> beta_GefiToEGFR;
+       real<lower=0> mu_U1_PRR_NFKB;
+       real<lower=0> sigma_U1_PRR_NFKB;
+       real<lower=0> mu_U2_PRR_NFKB;
+       real<lower=0> sigma_U2_PRR_NFKB;
+       real beta0_SARS_UPRR;
+       real<lower=0> beta_SARS_COV2ToPRR;
+       real<lower=0> beta_U1ToPRR;
+       real<lower=0> beta_U2ToPRR;
+       real beta0_PRR_U_EGFR_TNFToNFKB;
+       real<lower=0> beta_PRRToNFKB;
+       real<lower=0> beta_U1ToNFKB;
+       real<lower=0> beta_U2ToNFKB;
+       real<lower=0> beta_EGFRToNFKB;
+       real<lower=0> beta_TNFToNFKB;
+       real beta0_NFKB_IL6STSTToIL6STAT3;
+       real<lower=0> beta_UToIL6STAT3;
+       real<lower=0> beta_Sil6rToIL6STAT3;
+       real beta0_NFKB_IL6STATToIL6AMP;
+       real<lower=0> beta_NFKBToIL6AMP;
+       real<lower=0> beta_IL6STAT3ToIL6AMP;
+       real beta0_IL6AMPTocytok;
+       real<lower=0> beta_IL6AMPTocytok;
+       vector[D] U1_SARS_Ang;
+       vector[D] U2_SARS_Ang;
+       vector[D] U1_ADAM17_Sil6r;
+       vector[D] U2_ADAM17_Sil6r;
+       vector[D] U_EGF_EGFR;
+       vector[D] U_EGFR_TNF;
+       vector[D] U_EGFR_IL6STAT3;
+       vector[D] U1_PRR_NFKB;
+       vector[D] U2_PRR_NFKB;
+    }
+    transformed parameters {
+      vector[D] SARS_COV2_loc;
+      vector[D] ACE2_loc;
+      vector[D] Ang_loc;
+      vector[D] AGTR1_loc;
+      vector[D] ADAM17_loc;
+      vector[D] Sil6r_loc;
+      vector[D] EGF_loc;
+      vector[D] TNF_loc;
+      vector[D] EGFR_loc;
+      vector[D] PRR_loc;
+      vector[D] NFKB_loc;
+      vector[D] IL6STAT3_loc;
+      vector[D] IL6AMP_loc;
+      for (i in 1:D){
+        SARS_COV2_loc[i] = 100 / (1 + exp(-beta0_U_SARS_AngToSARS_COV2 -U1_SARS_Ang[i] * beta_U1_SARS_AngToSARS_COV2 -U2_SARS_Ang[i] * beta_U2_SARS_AngToSARS_COV2));
+        ACE2_loc[i] = beta0_SARS_COV2ToACE2 + SARS_COV2[i] * beta_SARS_COV2ToACE2;
+        Ang_loc[i] = beta0_ACE2_and_U_SARS_Ang_ToAng + ACE2[i] * beta_ACE2ToAng + U1_SARS_Ang[i] * beta_U1_SARS_AngToAng+ U2_SARS_Ang[i] * beta_U2_SARS_AngToAng;
+        AGTR1_loc[i] = 100 / (1 + exp(-beta0_AngToAGTR1 - Ang[i] * beta_AngToAGTR1));
+        ADAM17_loc[i] = 100 / (1 + exp(-beta0_AGTR1_UToADAM17 - AGTR1[i] * beta_AGTR1ToADAM17 - U1_ADAM17_Sil6r[i] * beta_U1_ADAM17_Sil6rToADAM17 - U2_ADAM17_Sil6r[i] * beta_U2_ADAM17_Sil6rToADAM17));
+        Sil6r_loc[i] = 100 / (1 + exp(-beta0_ADAM17_U_TociToSil6r - ADAM17[i] * beta_ADAM17ToSil6r - U1_ADAM17_Sil6r[i] * beta_U1ToSil6r  - U2_ADAM17_Sil6r[i] * beta_U2ToSil6r - Toci[i] * beta_TociToSil6r));
+        EGF_loc[i] = 100 / (1 + exp(-beta0_ADAM17_UToEGF - ADAM17[i] * beta_ADAM17ToEGF - U_EGF_EGFR[i] * beta_UToEGF));
+        TNF_loc[i] = 100 / (1 + exp(-beta0_ADAM17_UToTNF - ADAM17[i] * beta_ADAM17ToTNF - U_EGFR_TNF[i] * beta_UToTNF));
+        EGFR_loc[i] = 100 / (1 + exp(-beta0_EGF_3U - EGF[i] * beta_EGFToEGFR - U_EGFR_IL6STAT3[i] * beta_U1ToEGFR - U_EGFR_TNF[i] * beta_U2ToEGFR  - U_EGF_EGFR[i] * beta_U3ToEGFR - Gefi[i] * beta_GefiToEGFR));
+        PRR_loc[i] = 100 / (1 + exp(-beta0_SARS_UPRR - SARS_COV2[i] * beta_SARS_COV2ToPRR - U1_PRR_NFKB[i] * beta_U1ToPRR - U2_PRR_NFKB[i] * beta_U2ToPRR));
+        NFKB_loc[i] = 100 / (1 + exp(-beta0_PRR_U_EGFR_TNFToNFKB - PRR[i] * beta_PRRToNFKB - U1_PRR_NFKB[i] * beta_U1ToNFKB - U2_PRR_NFKB[i] * beta_U2ToNFKB- EGFR[i] * beta_EGFRToNFKB  - TNF[i] * beta_TNFToNFKB));
+        IL6STAT3_loc[i] = 100 / (1 + exp(-beta0_NFKB_IL6STSTToIL6STAT3 - U_EGFR_IL6STAT3[i] * beta_UToIL6STAT3 - Sil6r[i] * beta_Sil6rToIL6STAT3));
+        IL6AMP_loc[i] = 100 / (1 + exp(-beta0_NFKB_IL6STATToIL6AMP - NFKB[i] * beta_NFKBToIL6AMP - IL6STAT3[i] * beta_IL6STAT3ToIL6AMP));
+      }
+    }
+    model {
+        mu_U1_SARS_Ang ~ normal(22, 1); 
+        sigma_U1_SARS_Ang ~ normal(10, 1); 
+        mu_U2_SARS_Ang ~ normal(22, 1); 
+        sigma_U2_SARS_Ang ~ normal(10, 1);
+        mu_U1_ADAM17_Sil6r ~ normal(25, 1);
+        sigma_U1_ADAM17_Sil6r ~ normal(10, 1);
+        mu_U2_ADAM17_Sil6r ~ normal(25, 1);
+        sigma_U2_ADAM17_Sil6r ~ normal(10, 1);
+        beta0_U_SARS_AngToSARS_COV2 ~ normal(0, 10);
+        beta_U1_SARS_AngToSARS_COV2 ~ normal(0,10);
+        beta_U2_SARS_AngToSARS_COV2 ~ normal(0,10);
+        beta0_SARS_COV2ToACE2 ~ normal(20,10);
+        beta_SARS_COV2ToACE2 ~ normal(0,10);
+        beta0_ACE2_and_U_SARS_Ang_ToAng ~ normal(20,10);
+        beta_ACE2ToAng ~ normal(0,10);
+        beta_U1_SARS_AngToAng ~ normal(0,10);
+        beta_U2_SARS_AngToAng ~ normal(0,10);
+        beta0_AngToAGTR1 ~ normal(0,10);
+        beta_AngToAGTR1 ~ normal(0,10);
+        beta0_AGTR1_UToADAM17 ~ normal(0,10);
+        beta_AGTR1ToADAM17 ~ normal(0,10);
+        beta_U1_ADAM17_Sil6rToADAM17 ~ normal(0,10);
+        beta_U2_ADAM17_Sil6rToADAM17 ~ normal(0,10);
+        mu_Toci ~ normal(45, 1);
+        sigma_Toci ~ normal(10, 1);
+        beta0_ADAM17_U_TociToSil6r ~ normal(0, 10);
+        beta_ADAM17ToSil6r ~ normal(0, 10);
+        beta_U1ToSil6r ~ normal(0, 10);
+        beta_U2ToSil6r ~ normal(0, 10);
+        beta_TociToSil6r ~ normal(0, 10);
+        mu_U_EGF_EGFR ~ normal(50,1);
+        sigma_U_EGF_EGFR ~ normal(10,1);
+        beta0_ADAM17_UToEGF ~ normal(0,10);
+        beta_ADAM17ToEGF ~ normal(0,10);
+        beta_UToEGF ~ normal(0,10);
+        mu_U_EGFR_TNF ~ normal(45,1);
+        sigma_U_EGFR_TNF ~ normal(10,1);
+        beta0_ADAM17_UToTNF ~ normal(0, 10);
+        beta_ADAM17ToTNF ~ normal(0, 10);
+        beta_UToTNF ~ normal(0, 10);
+        mu_U_EGFR_IL6STAT3 ~ normal(40,1);
+        sigma_U_EGFR_IL6STAT3 ~ normal(10,1);
+        beta0_EGF_3U ~ normal(0, 10);
+        mu_Gefi ~ normal(40,1);
+        sigma_Gefi ~ normal(10,1);
+        beta_EGFToEGFR ~ normal(0, 10);
+        beta_U1ToEGFR ~ normal(0, 10);
+        beta_U2ToEGFR ~ normal(0, 10);
+        beta_U3ToEGFR ~ normal(0, 10); 
+        beta_GefiToEGFR ~ normal(0,10);
+        mu_U1_PRR_NFKB ~ normal(20, 1);
+        sigma_U1_PRR_NFKB ~ normal(10,1);
+        mu_U2_PRR_NFKB ~ normal(20, 1);
+        sigma_U2_PRR_NFKB ~ normal(10,1);
+        beta0_SARS_UPRR ~ normal(0, 10);
+        beta_SARS_COV2ToPRR ~ normal(0, 10);
+        beta_U1ToPRR ~ normal(0, 10);
+        beta_U2ToPRR ~ normal(0, 10);
+        beta_PRRToNFKB ~ normal(0, 10);
+        beta_U1ToNFKB ~ normal(0, 10);
+        beta_U2ToNFKB ~ normal(0, 10);
+        beta_EGFRToNFKB ~ normal(0, 10);
+        beta_TNFToNFKB ~ normal(0, 10);
+        beta0_NFKB_IL6STSTToIL6STAT3 ~ normal(0, 10);
+        beta_UToIL6STAT3 ~ normal(0, 10);
+        beta_Sil6rToIL6STAT3 ~ normal(0, 10);
+        beta0_NFKB_IL6STATToIL6AMP ~ normal(0, 10);
+        beta_NFKBToIL6AMP ~ normal(0, 10);
+        beta_IL6STAT3ToIL6AMP ~ normal(0, 10); 
+        beta0_IL6AMPTocytok ~ normal(0, 10);
+        beta_IL6AMPTocytok ~ normal(0, 10);         
+        //
+        U1_SARS_Ang ~ normal(mu_U1_SARS_Ang, sigma_U1_SARS_Ang);      // likelihood
+        U2_SARS_Ang ~ normal(mu_U2_SARS_Ang, sigma_U2_SARS_Ang);
+        SARS_COV2 ~ normal(SARS_COV2_loc, 101);
+        ACE2 ~ normal(ACE2_loc,1.6);
+        Ang ~ normal(Ang_loc,6);
+        AGTR1 ~ normal(AGTR1_loc,7.6);
+        ADAM17 ~ normal(ADAM17_loc,8.7);
+        U1_ADAM17_Sil6r ~ normal(mu_U1_ADAM17_Sil6r, sigma_U1_ADAM17_Sil6r);
+        U2_ADAM17_Sil6r ~ normal(mu_U2_ADAM17_Sil6r, sigma_U2_ADAM17_Sil6r);
+        Toci ~ normal(mu_Toci, sigma_Toci);
+        Sil6r ~ normal(Sil6r_loc,17.9);
+        U_EGF_EGFR ~ normal(mu_U_EGF_EGFR, sigma_U_EGF_EGFR);
+        EGF ~ normal(EGF_loc,7);
+        U_EGFR_TNF ~ normal(mu_U_EGFR_TNF,sigma_U_EGFR_TNF);
+        TNF ~ normal(TNF_loc, 6.5);
+        U_EGFR_IL6STAT3 ~ normal(mu_U_EGFR_IL6STAT3, sigma_U_EGFR_IL6STAT3);
+        EGFR ~ normal(EGFR_loc, 13.3);
+        U1_PRR_NFKB ~ normal(mu_U1_PRR_NFKB,sigma_U1_PRR_NFKB);
+        U2_PRR_NFKB ~ normal(mu_U2_PRR_NFKB,sigma_U2_PRR_NFKB);
+        PRR ~ normal(PRR_loc,14.1);
+        NFKB ~ normal(NFKB_loc,10);
+        IL6STAT3 ~ normal(IL6STAT3_loc, 18.6);
+        IL6AMP ~ normal(IL6AMP_loc, 12);
+        for(i in 1:D) {
+        cytok[i] ~ bernoulli_logit(beta0_IL6AMPTocytok + IL6AMP[i] * beta_IL6AMPTocytok);
+        }
+    }
+"
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+mod <- rstan::stan_model(model_code = model_str_covid)
+```
+
+```{r}
+hmc_fit_list <- rep(list(list()), K)
+
+start_time <- Sys.time()
+
+for (num_data_points in ndp) {
+  print("num_data_points is:")
+  print(num_data_points)
+  for (data_count in 1:K) {
+    print("data_count is:")
+    print(data_count)
+    data_list <- list(D=num_data_points
+                  ,SARS_COV2 = obs_data_list[[data_count]]$SARS_COV2[1:num_data_points]
+                  ,ACE2 = obs_data_list[[data_count]]$ACE2[1:num_data_points]
+                  ,Ang = obs_data_list[[data_count]]$Ang[1:num_data_points]
+                  ,AGTR1 = obs_data_list[[data_count]]$AGTR1[1:num_data_points]
+                  ,ADAM17 = obs_data_list[[data_count]]$ADAM17[1:num_data_points]
+                  ,Toci = obs_data_list[[data_count]]$Toci[1:num_data_points]
+                  ,Sil6r = obs_data_list[[data_count]]$Sil6r[1:num_data_points]
+                  ,EGF = obs_data_list[[data_count]]$EGF[1:num_data_points]
+                  ,TNF = obs_data_list[[data_count]]$TNF[1:num_data_points]
+                  ,Gefi = obs_data_list[[data_count]]$Gefi[1:num_data_points]
+                  ,EGFR = obs_data_list[[data_count]]$EGFR[1:num_data_points]
+                  ,PRR = obs_data_list[[data_count]]$PRR[1:num_data_points]
+                  ,NFKB = obs_data_list[[data_count]]$NFKB[1:num_data_points]
+                  ,IL6STAT3= obs_data_list[[data_count]]$IL6STAT3[1:num_data_points]
+                  ,IL6AMP = obs_data_list[[data_count]]$IL6AMP[1:num_data_points]
+                  ,cytok = obs_data_list[[data_count]]$cytok[1:num_data_points])
+    
+    hmc_fit_list[[data_count]][[paste0("num_data_points_",num_data_points)]] <- rstan::sampling(mod, data=data_list, chains = 2, iter = 3000, warmup = 1500, seed = 1, control = list(max_treedepth = 15))
+    
+  }
+}
+end_time <- Sys.time()
+end_time - start_time
+#14 hours for ndp=60 #20 hours for ndp = 100 #20 hours for ndp = 200
+#saveRDS(hmc_fit_list,file = "hmc_fit_list_Case3.RData")
+```
+
+
+## Mutilated model
+
+```{r}
+num_samples = 1000
+mutilated_model_sil6r <- function(mu_U1_SARS_Ang, sigma_U1_SARS_Ang,mu_U2_SARS_Ang, sigma_U2_SARS_Ang
+                            ,beta0_U_SARS_AngToSARS_COV2,beta_U1_SARS_AngToSARS_COV2,beta_U2_SARS_AngToSARS_COV2
+                            ,beta0_SARS_COV2ToACE2, beta_SARS_COV2ToACE2
+                            ,beta0_ACE2_and_U_SARS_Ang_ToAng, beta_ACE2ToAng, beta_U1_SARS_AngToAng, beta_U2_SARS_AngToAng
+                            ,beta0_AngToAGTR1, beta_AngToAGTR1
+                            ,mu_U1_ADAM17_Sil6r,sigma_U1_ADAM17_Sil6r,mu_U2_ADAM17_Sil6r,sigma_U2_ADAM17_Sil6r
+                            ,beta0_AGTR1_UToADAM17,beta_AGTR1ToADAM17, beta_U1_ADAM17_Sil6rToADAM17,beta_U2_ADAM17_Sil6rToADAM17
+                            ,mu_Toci, sigma_Toci
+                            ,beta0_ADAM17_U_TociToSil6r, beta_ADAM17ToSil6r, beta_U1ToSil6r, beta_U2ToSil6r, beta_TociToSil6r
+                            ,mu_U_EGF_EGFR, sigma_U_EGF_EGFR
+                            ,beta0_ADAM17_UToEGF, beta_ADAM17ToEGF, beta_UToEGF
+                            ,mu_U_EGFR_TNF, sigma_U_EGFR_TNF
+                            ,beta0_ADAM17_UToTNF, beta_ADAM17ToTNF, beta_UToTNF
+                            ,mu_U_EGFR_IL6STAT3,sigma_U_EGFR_IL6STAT3
+                            ,beta0_EGF_3U, beta_EGFToEGFR, beta_U1ToEGFR, beta_U2ToEGFR, beta_U3ToEGFR, beta_GefiToEGFR
+                            ,mu_U1_PRR_NFKB, sigma_U1_PRR_NFKB, mu_U2_PRR_NFKB, sigma_U2_PRR_NFKB
+                            ,beta0_SARS_UPRR, beta_SARS_COV2ToPRR, beta_U1ToPRR, beta_U2ToPRR
+                            ,beta0_PRR_U_EGFR_TNFToNFKB, beta_PRRToNFKB, beta_U1ToNFKB, beta_U2ToNFKB, beta_EGFRToNFKB, beta_TNFToNFKB
+                            ,beta0_NFKB_IL6STSTToIL6STAT3, beta_UToIL6STAT3, beta_Sil6rToIL6STAT3
+                            ,beta0_NFKB_IL6STATToIL6AMP, beta_NFKBToIL6AMP, beta_IL6STAT3ToIL6AMP
+                            ,beta0_IL6AMPTocytok, beta_IL6AMPTocytok,
+                            mu_Gefi, sigma_Gefi,
+                            seed, data_count
+) {
+    set.seed(seed)
+    U1_SARS_Ang_1 <- rnorm(num_samples, mu_U1_SARS_Ang, sigma_U1_SARS_Ang)
+    U2_SARS_Ang_1 <- rnorm(num_samples, mu_U2_SARS_Ang, sigma_U2_SARS_Ang)
+    SARS_COV2_1 = #rnorm(num_samples,
+                        100 / (1 + exp(-beta0_U_SARS_AngToSARS_COV2 - U1_SARS_Ang_1 * beta_U1_SARS_AngToSARS_COV2 - U2_SARS_Ang_1 * beta_U2_SARS_AngToSARS_COV2))#,
+                        #sqrt(var(obs_data_list[[data_count]]$SARS_COV2))
+                        #)
+    ACE2_1 = #rnorm(num_samples,
+                   beta0_SARS_COV2ToACE2 + SARS_COV2_1 * beta_SARS_COV2ToACE2#,
+                   #sqrt(var(obs_data_list[[data_count]]$ACE2))
+                   #)
+    Ang_1 = #rnorm(num_samples,
+                  beta0_ACE2_and_U_SARS_Ang_ToAng + ACE2_1 * beta_ACE2ToAng + U1_SARS_Ang_1 *beta_U1_SARS_AngToAng + U2_SARS_Ang_1 *beta_U2_SARS_AngToAng#,
+                  #sqrt(var(obs_data_list[[data_count]]$Ang))
+                  #)
+    AGTR1_1 = #rnorm(num_samples,
+                    100 / (1 + exp(-beta0_AngToAGTR1 - Ang_1 * beta_AngToAGTR1))#,
+                    #sqrt(var(obs_data_list[[data_count]]$AGTR1))
+                    #)
+    U1_ADAM17_Sil6r_1 = rnorm(num_samples,mu_U1_ADAM17_Sil6r,sigma_U1_ADAM17_Sil6r)
+    U2_ADAM17_Sil6r_1 = rnorm(num_samples,mu_U2_ADAM17_Sil6r,sigma_U2_ADAM17_Sil6r)
+    ADAM17_1 = #rnorm(num_samples,
+                     100 / (1 + exp(-beta0_AGTR1_UToADAM17 - AGTR1_1 * beta_AGTR1ToADAM17 - U1_ADAM17_Sil6r_1 * beta_U1_ADAM17_Sil6rToADAM17 - U2_ADAM17_Sil6r_1 * beta_U2_ADAM17_Sil6rToADAM17))#,
+                     #sqrt(var(obs_data_list[[data_count]]$ADAM17))
+                     #)
+    Toci_1 = rnorm(num_samples,mu_Toci, sigma_Toci)
+    
+    Sil6r_1 = rep(20, num_samples)
+    
+    U_EGF_EGFR_1 = rnorm(num_samples, mu_U_EGF_EGFR, sigma_U_EGF_EGFR)
+    EGF_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_ADAM17_UToEGF - ADAM17_1 * beta_ADAM17ToEGF - U_EGF_EGFR_1 * beta_UToEGF))#,
+                  #sqrt(var(obs_data_list[[data_count]]$EGF))
+                  #)
+    U_EGFR_TNF_1 = rnorm(num_samples, mu_U_EGFR_TNF, sigma_U_EGFR_TNF)
+    TNF_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_ADAM17_UToTNF - ADAM17_1 * beta_ADAM17ToTNF - U_EGFR_TNF_1 * beta_UToTNF))# ,
+                  #sqrt(var(obs_data_list[[data_count]]$TNF))
+                  #)
+    U_EGFR_IL6STAT3_1 =  rnorm(num_samples, mu_U_EGFR_IL6STAT3, sigma_U_EGFR_IL6STAT3)
+    Gefi_1 = rnorm(num_samples, mu_Gefi, sigma_Gefi)
+    EGFR_1 = #rnorm(num_samples,
+                   100 / (1 + exp(-beta0_EGF_3U - EGF_1 * beta_EGFToEGFR - U_EGFR_IL6STAT3_1 * beta_U1ToEGFR - U_EGFR_TNF_1 * beta_U2ToEGFR  - U_EGF_EGFR_1 * beta_U3ToEGFR - Gefi_1 * beta_GefiToEGFR))#,
+                   #sqrt(var(obs_data_list[[data_count]]$EGFR))
+                   #)
+    U1_PRR_NFKB_1 = rnorm(num_samples, mu_U1_PRR_NFKB, sigma_U1_PRR_NFKB)
+    U2_PRR_NFKB_1 = rnorm(num_samples, mu_U2_PRR_NFKB, sigma_U2_PRR_NFKB)
+    PRR_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_SARS_UPRR - SARS_COV2_1 * beta_SARS_COV2ToPRR - U1_PRR_NFKB_1 * beta_U1ToPRR - U2_PRR_NFKB_1 * beta_U2ToPRR))# ,
+                  #sqrt(var(obs_data_list[[data_count]]$PRR))
+                  #)
+    NFKB_1 = #rnorm(num_samples,
+                   100 / (1 + exp(-beta0_PRR_U_EGFR_TNFToNFKB - PRR_1 * beta_PRRToNFKB - U1_PRR_NFKB_1 * beta_U1ToNFKB  - U2_PRR_NFKB_1 * beta_U2ToNFKB- EGFR_1 * beta_EGFRToNFKB  - TNF_1 * beta_TNFToNFKB))# ,
+                   #sqrt(var(obs_data_list[[data_count]]$NFKB))
+                   #)
+    IL6STAT3_1 = #rnorm(num_samples,
+                       100 / (1 + exp(-beta0_NFKB_IL6STSTToIL6STAT3 - U_EGFR_IL6STAT3_1 * beta_UToIL6STAT3 - Sil6r_1 * beta_Sil6rToIL6STAT3))#,
+                       #sqrt(var(obs_data_list[[data_count]]$IL6STAT3))
+                       #)
+    IL6AMP_1 = #rnorm(num_samples,
+                     100 / (1 + exp(-beta0_NFKB_IL6STATToIL6AMP - NFKB_1 * beta_NFKBToIL6AMP - IL6STAT3_1 * beta_IL6STAT3ToIL6AMP))#,
+                     #sqrt(var(obs_data_list[[data_count]]$IL6AMP))
+                     #)
+    p_cytok = 1 / (1 + exp(-beta0_IL6AMPTocytok - IL6AMP_1 * beta_IL6AMPTocytok))
+    cytok_1 = rbinom(n = num_samples, size = 1, prob = p_cytok)
+    return(cytok_1)
+}
+```
+
+```{r}
+num_samples = 1000
+mutilated_model_egfr <- function(mu_U1_SARS_Ang, sigma_U1_SARS_Ang,mu_U2_SARS_Ang, sigma_U2_SARS_Ang
+                            ,beta0_U_SARS_AngToSARS_COV2,beta_U1_SARS_AngToSARS_COV2,beta_U2_SARS_AngToSARS_COV2
+                            ,beta0_SARS_COV2ToACE2, beta_SARS_COV2ToACE2
+                            ,beta0_ACE2_and_U_SARS_Ang_ToAng, beta_ACE2ToAng, beta_U1_SARS_AngToAng, beta_U2_SARS_AngToAng
+                            ,beta0_AngToAGTR1, beta_AngToAGTR1
+                            ,mu_U1_ADAM17_Sil6r,sigma_U1_ADAM17_Sil6r,mu_U2_ADAM17_Sil6r,sigma_U2_ADAM17_Sil6r
+                            ,beta0_AGTR1_UToADAM17,beta_AGTR1ToADAM17, beta_U1_ADAM17_Sil6rToADAM17,beta_U2_ADAM17_Sil6rToADAM17
+                            ,mu_Toci, sigma_Toci
+                            ,beta0_ADAM17_U_TociToSil6r, beta_ADAM17ToSil6r, beta_U1ToSil6r, beta_U2ToSil6r, beta_TociToSil6r
+                            ,mu_U_EGF_EGFR, sigma_U_EGF_EGFR
+                            ,beta0_ADAM17_UToEGF, beta_ADAM17ToEGF, beta_UToEGF
+                            ,mu_U_EGFR_TNF, sigma_U_EGFR_TNF
+                            ,beta0_ADAM17_UToTNF, beta_ADAM17ToTNF, beta_UToTNF
+                            ,mu_U_EGFR_IL6STAT3,sigma_U_EGFR_IL6STAT3
+                            ,beta0_EGF_3U, beta_EGFToEGFR, beta_U1ToEGFR, beta_U2ToEGFR, beta_U3ToEGFR, beta_GefiToEGFR
+                            ,mu_U1_PRR_NFKB, sigma_U1_PRR_NFKB, mu_U2_PRR_NFKB, sigma_U2_PRR_NFKB
+                            ,beta0_SARS_UPRR, beta_SARS_COV2ToPRR, beta_U1ToPRR, beta_U2ToPRR
+                            ,beta0_PRR_U_EGFR_TNFToNFKB, beta_PRRToNFKB, beta_U1ToNFKB, beta_U2ToNFKB, beta_EGFRToNFKB, beta_TNFToNFKB
+                            ,beta0_NFKB_IL6STSTToIL6STAT3, beta_UToIL6STAT3, beta_Sil6rToIL6STAT3
+                            ,beta0_NFKB_IL6STATToIL6AMP, beta_NFKBToIL6AMP, beta_IL6STAT3ToIL6AMP
+                            ,beta0_IL6AMPTocytok, beta_IL6AMPTocytok,
+                            mu_Gefi, sigma_Gefi,
+                            seed, data_count
+) {
+    set.seed(seed)
+    U1_SARS_Ang_1 <- rnorm(num_samples, mu_U1_SARS_Ang, sigma_U1_SARS_Ang)
+    U2_SARS_Ang_1 <- rnorm(num_samples, mu_U2_SARS_Ang, sigma_U2_SARS_Ang)
+    SARS_COV2_1 = #rnorm(num_samples,
+                        100 / (1 + exp(-beta0_U_SARS_AngToSARS_COV2 - U1_SARS_Ang_1 * beta_U1_SARS_AngToSARS_COV2 - U2_SARS_Ang_1 * beta_U2_SARS_AngToSARS_COV2))#,
+                        #sqrt(var(obs_data_list[[data_count]]$SARS_COV2))
+                        #)
+    ACE2_1 = #rnorm(num_samples,
+                   beta0_SARS_COV2ToACE2 + SARS_COV2_1 * beta_SARS_COV2ToACE2#,
+                   #sqrt(var(obs_data_list[[data_count]]$ACE2))
+                   #)
+    Ang_1 = #rnorm(num_samples,
+                  beta0_ACE2_and_U_SARS_Ang_ToAng + ACE2_1 * beta_ACE2ToAng + U1_SARS_Ang_1 *beta_U1_SARS_AngToAng + U2_SARS_Ang_1 *beta_U2_SARS_AngToAng#,
+                  #sqrt(var(obs_data_list[[data_count]]$Ang))
+                  #)
+    AGTR1_1 = #rnorm(num_samples,
+                    100 / (1 + exp(-beta0_AngToAGTR1 - Ang_1 * beta_AngToAGTR1))#,
+                    #sqrt(var(obs_data_list[[data_count]]$AGTR1))
+                    #)
+    U1_ADAM17_Sil6r_1 = rnorm(num_samples,mu_U1_ADAM17_Sil6r,sigma_U1_ADAM17_Sil6r)
+    U2_ADAM17_Sil6r_1 = rnorm(num_samples,mu_U2_ADAM17_Sil6r,sigma_U2_ADAM17_Sil6r)
+    ADAM17_1 = #rnorm(num_samples,
+                     100 / (1 + exp(-beta0_AGTR1_UToADAM17 - AGTR1_1 * beta_AGTR1ToADAM17 - U1_ADAM17_Sil6r_1 * beta_U1_ADAM17_Sil6rToADAM17 - U2_ADAM17_Sil6r_1 * beta_U2_ADAM17_Sil6rToADAM17))#,
+                     #sqrt(var(obs_data_list[[data_count]]$ADAM17))
+                     #)
+    Toci_1 = rnorm(num_samples,mu_Toci, sigma_Toci)
+    
+    Sil6r_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_ADAM17_U_TociToSil6r - ADAM17_1 * beta_ADAM17ToSil6r - U1_ADAM17_Sil6r_1 * beta_U1ToSil6r  - U2_ADAM17_Sil6r_1 * beta_U2ToSil6r - Toci_1 * beta_TociToSil6r))#,
+                  #sqrt(var(obs_data_list[[data_count]]$EGF))
+                  #)
+    
+    U_EGF_EGFR_1 = rnorm(num_samples, mu_U_EGF_EGFR, sigma_U_EGF_EGFR)
+    EGF_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_ADAM17_UToEGF - ADAM17_1 * beta_ADAM17ToEGF - U_EGF_EGFR_1 * beta_UToEGF))#,
+                  #sqrt(var(obs_data_list[[data_count]]$EGF))
+                  #)
+    U_EGFR_TNF_1 = rnorm(num_samples, mu_U_EGFR_TNF, sigma_U_EGFR_TNF)
+    TNF_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_ADAM17_UToTNF - ADAM17_1 * beta_ADAM17ToTNF - U_EGFR_TNF_1 * beta_UToTNF))# ,
+                  #sqrt(var(obs_data_list[[data_count]]$TNF))
+                  #)
+    U_EGFR_IL6STAT3_1 =  rnorm(num_samples, mu_U_EGFR_IL6STAT3, sigma_U_EGFR_IL6STAT3)
+    Gefi_1 = rnorm(num_samples, mu_Gefi, sigma_Gefi)
+    EGFR_1 = rep(20, num_samples)
+    U1_PRR_NFKB_1 = rnorm(num_samples, mu_U1_PRR_NFKB, sigma_U1_PRR_NFKB)
+    U2_PRR_NFKB_1 = rnorm(num_samples, mu_U2_PRR_NFKB, sigma_U2_PRR_NFKB)
+    PRR_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_SARS_UPRR - SARS_COV2_1 * beta_SARS_COV2ToPRR - U1_PRR_NFKB_1 * beta_U1ToPRR - U2_PRR_NFKB_1 * beta_U2ToPRR))# ,
+                  #sqrt(var(obs_data_list[[data_count]]$PRR))
+                  #)
+    NFKB_1 = #rnorm(num_samples,
+                   100 / (1 + exp(-beta0_PRR_U_EGFR_TNFToNFKB - PRR_1 * beta_PRRToNFKB - U1_PRR_NFKB_1 * beta_U1ToNFKB  - U2_PRR_NFKB_1 * beta_U2ToNFKB- EGFR_1 * beta_EGFRToNFKB  - TNF_1 * beta_TNFToNFKB))# ,
+                   #sqrt(var(obs_data_list[[data_count]]$NFKB))
+                   #)
+    IL6STAT3_1 = #rnorm(num_samples,
+                       100 / (1 + exp(-beta0_NFKB_IL6STSTToIL6STAT3 - U_EGFR_IL6STAT3_1 * beta_UToIL6STAT3 - Sil6r_1 * beta_Sil6rToIL6STAT3))#,
+                       #sqrt(var(obs_data_list[[data_count]]$IL6STAT3))
+                       #)
+    IL6AMP_1 = #rnorm(num_samples,
+                     100 / (1 + exp(-beta0_NFKB_IL6STATToIL6AMP - NFKB_1 * beta_NFKBToIL6AMP - IL6STAT3_1 * beta_IL6STAT3ToIL6AMP))#,
+                     #sqrt(var(obs_data_list[[data_count]]$IL6AMP))
+                     #)
+    p_cytok = 1 / (1 + exp(-beta0_IL6AMPTocytok - IL6AMP_1 * beta_IL6AMPTocytok))
+    cytok_1 = rbinom(n = num_samples, size = 1, prob = p_cytok)
+    return(cytok_1)
+}
+```
+
+This is the whole parametes for this case study:
+
+```{r}
+parameters <- c("mu_U1_SARS_Ang", "sigma_U1_SARS_Ang", "mu_U2_SARS_Ang", "sigma_U2_SARS_Ang"
+                                     ,"beta0_U_SARS_AngToSARS_COV2","beta_U1_SARS_AngToSARS_COV2","beta_U2_SARS_AngToSARS_COV2"
+                                     ,"beta0_SARS_COV2ToACE2", "beta_SARS_COV2ToACE2"
+                                     ,"beta0_ACE2_and_U_SARS_Ang_ToAng", "beta_ACE2ToAng", "beta_U1_SARS_AngToAng","beta_U2_SARS_AngToAng"
+                                     ,"beta0_AngToAGTR1", "beta_AngToAGTR1"
+                                     ,"mu_U1_ADAM17_Sil6r", "sigma_U1_ADAM17_Sil6r","mu_U2_ADAM17_Sil6r", "sigma_U2_ADAM17_Sil6r"
+                                     ,"beta0_AGTR1_UToADAM17", "beta_AGTR1ToADAM17","beta_U1_ADAM17_Sil6rToADAM17","beta_U2_ADAM17_Sil6rToADAM17"
+                                     ,"mu_Toci", "sigma_Toci"
+                                     ,"beta0_ADAM17_U_TociToSil6r", "beta_ADAM17ToSil6r", "beta_U1ToSil6r", "beta_U2ToSil6r", "beta_TociToSil6r"
+                                     ,"mu_U_EGF_EGFR", "sigma_U_EGF_EGFR"
+                                     ,"beta0_ADAM17_UToEGF", "beta_ADAM17ToEGF", "beta_UToEGF"
+                                     ,"mu_U_EGFR_TNF", "sigma_U_EGFR_TNF"
+                                     ,"beta0_ADAM17_UToTNF", "beta_ADAM17ToTNF", "beta_UToTNF"
+                                     ,"mu_U_EGFR_IL6STAT3", "sigma_U_EGFR_IL6STAT3"
+                                     ,"beta0_EGF_3U", "beta_EGFToEGFR", "beta_U1ToEGFR", "beta_U2ToEGFR", "beta_U3ToEGFR", "beta_GefiToEGFR"
+                                     ,"mu_U1_PRR_NFKB", "sigma_U1_PRR_NFKB","mu_U2_PRR_NFKB", "sigma_U2_PRR_NFKB"
+                                     ,"beta0_SARS_UPRR", "beta_SARS_COV2ToPRR", "beta_U1ToPRR", "beta_U2ToPRR"
+                                     ,"beta0_PRR_U_EGFR_TNFToNFKB", "beta_PRRToNFKB", "beta_U1ToNFKB", "beta_U2ToNFKB", "beta_EGFRToNFKB", "beta_TNFToNFKB"  
+                                     ,"beta0_NFKB_IL6STSTToIL6STAT3", "beta_UToIL6STAT3", "beta_Sil6rToIL6STAT3"
+                                     ,"beta0_NFKB_IL6STATToIL6AMP", "beta_NFKBToIL6AMP", "beta_IL6STAT3ToIL6AMP"
+                                     ,"beta0_IL6AMPTocytok", "beta_IL6AMPTocytok",
+                "mu_Gefi", "sigma_Gefi")
+
+```
+
+
+```{r}
+#hmc_fit_list <- readRDS(file = "data/Case3_Covid/output/hmc_fit_list_Case3.RData")
+estimated_y_hmc_list <- rep(list(list()), K)
+means_hmc <- c()
+means_hmc_list <- list()
+seed = 5
+for (num_data_points in ndp) {
+  for (data_count in 1:K) {
+    samples_hmc <- rstan::extract(hmc_fit_list[[data_count]][[paste0("num_data_points_",num_data_points)]], parameters)
+    estimated_y_hmc_list[[data_count]][[paste0("num_data_points_",num_data_points)]] <-  mutilated_model_sil6r(mu_U1_SARS_Ang = mean(samples_hmc$mu_U1_SARS_Ang),
+                                                           sigma_U1_SARS_Ang = mean(samples_hmc$sigma_U1_SARS_Ang),
+                                                           mu_U2_SARS_Ang = mean(samples_hmc$mu_U2_SARS_Ang),
+                                                           sigma_U2_SARS_Ang = mean(samples_hmc$sigma_U2_SARS_Ang),
+                                                           beta0_U_SARS_AngToSARS_COV2 = mean(samples_hmc$beta0_U_SARS_AngToSARS_COV2),
+                                                           beta_U1_SARS_AngToSARS_COV2 = mean(samples_hmc$beta_U1_SARS_AngToSARS_COV2),
+                                                           beta_U2_SARS_AngToSARS_COV2 = mean(samples_hmc$beta_U2_SARS_AngToSARS_COV2),
+                                                           beta0_SARS_COV2ToACE2 = mean(samples_hmc$beta0_SARS_COV2ToACE2),
+                                                           beta_SARS_COV2ToACE2 = mean(samples_hmc$beta_SARS_COV2ToACE2),
+                                                           beta0_ACE2_and_U_SARS_Ang_ToAng = mean(samples_hmc$beta0_ACE2_and_U_SARS_Ang_ToAng),
+                                                           beta_ACE2ToAng = mean(samples_hmc$beta_ACE2ToAng),
+                                                           beta_U1_SARS_AngToAng = mean(samples_hmc$beta_U1_SARS_AngToAng),
+                                                           beta_U2_SARS_AngToAng = mean(samples_hmc$beta_U2_SARS_AngToAng),
+                                                           beta0_AngToAGTR1 = mean(samples_hmc$beta0_AngToAGTR1),
+                                                           beta_AngToAGTR1 = mean(samples_hmc$beta_AngToAGTR1),
+                                                           mu_U1_ADAM17_Sil6r = mean(samples_hmc$mu_U1_ADAM17_Sil6r),
+                                                           sigma_U1_ADAM17_Sil6r = mean(samples_hmc$sigma_U1_ADAM17_Sil6r),
+                                                           mu_U2_ADAM17_Sil6r = mean(samples_hmc$mu_U2_ADAM17_Sil6r),
+                                                           sigma_U2_ADAM17_Sil6r = mean(samples_hmc$sigma_U2_ADAM17_Sil6r),
+                                                           beta0_AGTR1_UToADAM17 = mean(samples_hmc$beta0_AGTR1_UToADAM17),
+                                                           beta_AGTR1ToADAM17 = mean(samples_hmc$beta_AGTR1ToADAM17),
+                                                           beta_U1_ADAM17_Sil6rToADAM17 = mean(samples_hmc$beta_U1_ADAM17_Sil6rToADAM17),
+                                                           beta_U2_ADAM17_Sil6rToADAM17 = mean(samples_hmc$beta_U2_ADAM17_Sil6rToADAM17),
+                                                           mu_Toci = mean(samples_hmc$mu_Toci),
+                                                           sigma_Toci = mean(samples_hmc$sigma_Toci),
+                                                           beta0_ADAM17_U_TociToSil6r = mean(samples_hmc$beta0_ADAM17_U_TociToSil6r),
+                                                           beta_ADAM17ToSil6r = mean(samples_hmc$beta_ADAM17ToSil6r),
+                                                           beta_U1ToSil6r = mean(samples_hmc$beta_U1ToSil6r),
+                                                           beta_U2ToSil6r = mean(samples_hmc$beta_U2ToSil6r),
+                                                           beta_TociToSil6r = mean(samples_hmc$beta_TociToSil6r),
+                                                           mu_U_EGF_EGFR = mean(samples_hmc$mu_U_EGF_EGFR),
+                                                           sigma_U_EGF_EGFR = mean(samples_hmc$sigma_U_EGF_EGFR),
+                                                           beta0_ADAM17_UToEGF = mean(samples_hmc$beta0_ADAM17_UToEGF),
+                                                           beta_ADAM17ToEGF = mean(samples_hmc$beta_ADAM17ToEGF),
+                                                           beta_UToEGF = mean(samples_hmc$beta_UToEGF),
+                                                           mu_U_EGFR_TNF = mean(samples_hmc$mu_U_EGFR_TNF),
+                                                           sigma_U_EGFR_TNF = mean(samples_hmc$sigma_U_EGFR_TNF),
+                                                           beta0_ADAM17_UToTNF = mean(samples_hmc$beta0_ADAM17_UToTNF),
+                                                           beta_ADAM17ToTNF = mean(samples_hmc$beta_ADAM17ToTNF),
+                                                           beta_UToTNF = mean(samples_hmc$beta_UToTNF),
+                                                           mu_U_EGFR_IL6STAT3 = mean(samples_hmc$mu_U_EGFR_IL6STAT3),
+                                                           sigma_U_EGFR_IL6STAT3 = mean(samples_hmc$sigma_U_EGFR_IL6STAT3),
+                                                           beta0_EGF_3U = mean(samples_hmc$beta0_EGF_3U),
+                                                           beta_EGFToEGFR = mean(samples_hmc$beta_EGFToEGFR),
+                                                           beta_U1ToEGFR = mean(samples_hmc$beta_U1ToEGFR),
+                                                           beta_U2ToEGFR = mean(samples_hmc$beta_U2ToEGFR),
+                                                           beta_U3ToEGFR = mean(samples_hmc$beta_U3ToEGFR),
+                                                           beta_GefiToEGFR = mean(samples_hmc$beta_GefiToEGFR),
+                                                           mu_U1_PRR_NFKB = mean(samples_hmc$mu_U1_PRR_NFKB),
+                                                           sigma_U1_PRR_NFKB = mean(samples_hmc$sigma_U1_PRR_NFKB),
+                                                           mu_U2_PRR_NFKB = mean(samples_hmc$mu_U2_PRR_NFKB),
+                                                           sigma_U2_PRR_NFKB = mean(samples_hmc$sigma_U2_PRR_NFKB),
+                                                           beta0_SARS_UPRR = mean(samples_hmc$beta0_SARS_UPRR),
+                                                           beta_SARS_COV2ToPRR = mean(samples_hmc$beta_SARS_COV2ToPRR),
+                                                           beta_U1ToPRR = mean(samples_hmc$beta_U1ToPRR),
+                                                           beta_U2ToPRR = mean(samples_hmc$beta_U2ToPRR),
+                                                           beta0_PRR_U_EGFR_TNFToNFKB = mean(samples_hmc$beta0_PRR_U_EGFR_TNFToNFKB),
+                                                           beta_PRRToNFKB = mean(samples_hmc$beta_PRRToNFKB),
+                                                           beta_U1ToNFKB = mean(samples_hmc$beta_U1ToNFKB),
+                                                           beta_U2ToNFKB = mean(samples_hmc$beta_U2ToNFKB),
+                                                           beta_EGFRToNFKB = mean(samples_hmc$beta_EGFRToNFKB),
+                                                           beta_TNFToNFKB = mean(samples_hmc$beta_TNFToNFKB),
+                                                           beta0_NFKB_IL6STSTToIL6STAT3 = mean(samples_hmc$beta0_NFKB_IL6STSTToIL6STAT3),
+                                                           beta_UToIL6STAT3 = mean(samples_hmc$beta_UToIL6STAT3),
+                                                           beta_Sil6rToIL6STAT3 = mean(samples_hmc$beta_Sil6rToIL6STAT3),
+                                                           beta0_NFKB_IL6STATToIL6AMP = mean(samples_hmc$beta0_NFKB_IL6STATToIL6AMP),
+                                                           beta_NFKBToIL6AMP = mean(samples_hmc$beta_NFKBToIL6AMP),
+                                                           beta_IL6STAT3ToIL6AMP = mean(samples_hmc$beta_IL6STAT3ToIL6AMP),
+                                                           beta0_IL6AMPTocytok= mean(samples_hmc$beta0_IL6AMPTocytok),
+                                                           beta_IL6AMPTocytok = mean(samples_hmc$beta_IL6AMPTocytok),
+                                                           mu_Gefi = mean(samples_hmc$mu_Gefi),
+                                                           sigma_Gefi = mean(samples_hmc$sigma_Gefi),
+                                                           seed = seed,
+                                                           data_count = data_count
+    )
+    means_hmc <- c(means_hmc,abs(mean(estimated_y_hmc_list[[data_count]][[paste0("num_data_points_",num_data_points)]]) - mean(intv_data_list_sil6r[[data_count]]$cytok)))
+  }
+  means_hmc_list[[paste0("num_data_points_",num_data_points)]] <- means_hmc
+  means_hmc <- c()
+}
+saveRDS(means_hmc_list,file = "data/Case3_Covid/output/means_hmc_list_Case3_sil6r.RData")
+```
+
+
+```{r}
+hmc_fit_list <- readRDS(file = "data/Case3_Covid/output/hmc_fit_list_Case3.RData")
+estimated_y_hmc_list <- rep(list(list()), K)
+means_hmc <- c()
+means_hmc_list <- list()
+seed = 5
+
+start_time <- Sys.time()
+
+for (num_data_points in ndp) {
+  for (data_count in 1:K) {
+
+    samples_hmc <- rstan::extract(hmc_fit_list[[data_count]][[paste0("num_data_points_",num_data_points)]], parameters)
+    
+    estimated_y_hmc_list[[data_count]][[paste0("num_data_points_",num_data_points)]] <-  mutilated_model_egfr(mu_U1_SARS_Ang = mean(samples_hmc$mu_U1_SARS_Ang),
+                                                           sigma_U1_SARS_Ang = mean(samples_hmc$sigma_U1_SARS_Ang),
+                                                           mu_U2_SARS_Ang = mean(samples_hmc$mu_U2_SARS_Ang),
+                                                           sigma_U2_SARS_Ang = mean(samples_hmc$sigma_U2_SARS_Ang),
+                                                           beta0_U_SARS_AngToSARS_COV2 = mean(samples_hmc$beta0_U_SARS_AngToSARS_COV2),
+                                                           beta_U1_SARS_AngToSARS_COV2 = mean(samples_hmc$beta_U1_SARS_AngToSARS_COV2),
+                                                           beta_U2_SARS_AngToSARS_COV2 = mean(samples_hmc$beta_U2_SARS_AngToSARS_COV2),
+                                                           beta0_SARS_COV2ToACE2 = mean(samples_hmc$beta0_SARS_COV2ToACE2),
+                                                           beta_SARS_COV2ToACE2 = mean(samples_hmc$beta_SARS_COV2ToACE2),
+                                                           beta0_ACE2_and_U_SARS_Ang_ToAng = mean(samples_hmc$beta0_ACE2_and_U_SARS_Ang_ToAng),
+                                                           beta_ACE2ToAng = mean(samples_hmc$beta_ACE2ToAng),
+                                                           beta_U1_SARS_AngToAng = mean(samples_hmc$beta_U1_SARS_AngToAng),
+                                                           beta_U2_SARS_AngToAng = mean(samples_hmc$beta_U2_SARS_AngToAng),
+                                                           beta0_AngToAGTR1 = mean(samples_hmc$beta0_AngToAGTR1),
+                                                           beta_AngToAGTR1 = mean(samples_hmc$beta_AngToAGTR1),
+                                                           mu_U1_ADAM17_Sil6r = mean(samples_hmc$mu_U1_ADAM17_Sil6r),
+                                                           sigma_U1_ADAM17_Sil6r = mean(samples_hmc$sigma_U1_ADAM17_Sil6r),
+                                                           mu_U2_ADAM17_Sil6r = mean(samples_hmc$mu_U2_ADAM17_Sil6r),
+                                                           sigma_U2_ADAM17_Sil6r = mean(samples_hmc$sigma_U2_ADAM17_Sil6r),
+                                                           beta0_AGTR1_UToADAM17 = mean(samples_hmc$beta0_AGTR1_UToADAM17),
+                                                           beta_AGTR1ToADAM17 = mean(samples_hmc$beta_AGTR1ToADAM17),
+                                                           beta_U1_ADAM17_Sil6rToADAM17 = mean(samples_hmc$beta_U1_ADAM17_Sil6rToADAM17),
+                                                           beta_U2_ADAM17_Sil6rToADAM17 = mean(samples_hmc$beta_U2_ADAM17_Sil6rToADAM17),
+                                                           mu_Toci = mean(samples_hmc$mu_Toci),
+                                                           sigma_Toci = mean(samples_hmc$sigma_Toci),
+                                                           beta0_ADAM17_U_TociToSil6r = mean(samples_hmc$beta0_ADAM17_U_TociToSil6r),
+                                                           beta_ADAM17ToSil6r = mean(samples_hmc$beta_ADAM17ToSil6r),
+                                                           beta_U1ToSil6r = mean(samples_hmc$beta_U1ToSil6r),
+                                                           beta_U2ToSil6r = mean(samples_hmc$beta_U2ToSil6r),
+                                                           beta_TociToSil6r = mean(samples_hmc$beta_TociToSil6r),
+                                                           mu_U_EGF_EGFR = mean(samples_hmc$mu_U_EGF_EGFR),
+                                                           sigma_U_EGF_EGFR = mean(samples_hmc$sigma_U_EGF_EGFR),
+                                                           beta0_ADAM17_UToEGF = mean(samples_hmc$beta0_ADAM17_UToEGF),
+                                                           beta_ADAM17ToEGF = mean(samples_hmc$beta_ADAM17ToEGF),
+                                                           beta_UToEGF = mean(samples_hmc$beta_UToEGF),
+                                                           mu_U_EGFR_TNF = mean(samples_hmc$mu_U_EGFR_TNF),
+                                                           sigma_U_EGFR_TNF = mean(samples_hmc$sigma_U_EGFR_TNF),
+                                                           beta0_ADAM17_UToTNF = mean(samples_hmc$beta0_ADAM17_UToTNF),
+                                                           beta_ADAM17ToTNF = mean(samples_hmc$beta_ADAM17ToTNF),
+                                                           beta_UToTNF = mean(samples_hmc$beta_UToTNF),
+                                                           mu_U_EGFR_IL6STAT3 = mean(samples_hmc$mu_U_EGFR_IL6STAT3),
+                                                           sigma_U_EGFR_IL6STAT3 = mean(samples_hmc$sigma_U_EGFR_IL6STAT3),
+                                                           beta0_EGF_3U = mean(samples_hmc$beta0_EGF_3U),
+                                                           beta_EGFToEGFR = mean(samples_hmc$beta_EGFToEGFR),
+                                                           beta_U1ToEGFR = mean(samples_hmc$beta_U1ToEGFR),
+                                                           beta_U2ToEGFR = mean(samples_hmc$beta_U2ToEGFR),
+                                                           beta_U3ToEGFR = mean(samples_hmc$beta_U3ToEGFR),
+                                                           beta_GefiToEGFR = mean(samples_hmc$beta_GefiToEGFR),
+                                                           mu_U1_PRR_NFKB = mean(samples_hmc$mu_U1_PRR_NFKB),
+                                                           sigma_U1_PRR_NFKB = mean(samples_hmc$sigma_U1_PRR_NFKB),
+                                                           mu_U2_PRR_NFKB = mean(samples_hmc$mu_U2_PRR_NFKB),
+                                                           sigma_U2_PRR_NFKB = mean(samples_hmc$sigma_U2_PRR_NFKB),
+                                                           beta0_SARS_UPRR = mean(samples_hmc$beta0_SARS_UPRR),
+                                                           beta_SARS_COV2ToPRR = mean(samples_hmc$beta_SARS_COV2ToPRR),
+                                                           beta_U1ToPRR = mean(samples_hmc$beta_U1ToPRR),
+                                                           beta_U2ToPRR = mean(samples_hmc$beta_U2ToPRR),
+                                                           beta0_PRR_U_EGFR_TNFToNFKB = mean(samples_hmc$beta0_PRR_U_EGFR_TNFToNFKB),
+                                                           beta_PRRToNFKB = mean(samples_hmc$beta_PRRToNFKB),
+                                                           beta_U1ToNFKB = mean(samples_hmc$beta_U1ToNFKB),
+                                                           beta_U2ToNFKB = mean(samples_hmc$beta_U2ToNFKB),
+                                                           beta_EGFRToNFKB = mean(samples_hmc$beta_EGFRToNFKB),
+                                                           beta_TNFToNFKB = mean(samples_hmc$beta_TNFToNFKB),
+                                                           beta0_NFKB_IL6STSTToIL6STAT3 = mean(samples_hmc$beta0_NFKB_IL6STSTToIL6STAT3),
+                                                           beta_UToIL6STAT3 = mean(samples_hmc$beta_UToIL6STAT3),
+                                                           beta_Sil6rToIL6STAT3 = mean(samples_hmc$beta_Sil6rToIL6STAT3),
+                                                           beta0_NFKB_IL6STATToIL6AMP = mean(samples_hmc$beta0_NFKB_IL6STATToIL6AMP),
+                                                           beta_NFKBToIL6AMP = mean(samples_hmc$beta_NFKBToIL6AMP),
+                                                           beta_IL6STAT3ToIL6AMP = mean(samples_hmc$beta_IL6STAT3ToIL6AMP),
+                                                           beta0_IL6AMPTocytok= mean(samples_hmc$beta0_IL6AMPTocytok),
+                                                           beta_IL6AMPTocytok = mean(samples_hmc$beta_IL6AMPTocytok),
+                                                           mu_Gefi = mean(samples_hmc$mu_Gefi),
+                                                           sigma_Gefi = mean(samples_hmc$sigma_Gefi),
+                                                           seed = seed,
+                                                           data_count = data_count
+    )
+    means_hmc <- c(means_hmc,abs(mean(estimated_y_hmc_list[[data_count]][[paste0("num_data_points_",num_data_points)]]) - mean(intv_data_list_egfr[[data_count]]$cytok)))
+  }
+  means_hmc_list[[paste0("num_data_points_",num_data_points)]] <- means_hmc
+  means_hmc <- c()
+}
+end_time <- Sys.time()
+end_time - start_time
+saveRDS(means_hmc_list,file = "data/Case3_Covid/output/means_hmc_list_Case3_egfr.RData")
+```
+
+
+
+
+
+# The misspecified model
+
+## Misspecified Stan model in presence of latent variables
+
+```{r}
+model_str_covid_misspecify <- "
+    data {
+        int D;
+        vector[D] SARS_COV2;
+        vector[D] ACE2;
+        vector[D] Ang;
+        vector[D] AGTR1;
+        vector[D] ADAM17;
+        vector[D] Toci;
+        vector[D] Sil6r;
+        vector[D] EGF;
+        vector[D] TNF;
+        vector[D] Gefi;
+        vector[D] EGFR;
+        vector[D] PRR;
+        vector[D] NFKB;
+        vector[D] IL6STAT3;
+        vector[D] IL6AMP;
+        int<lower=0,upper=1> cytok[D];
+    }
+    parameters {
+       real<lower=0> mu_U_SARS_Ang; 
+       real<lower=0> sigma_U_SARS_Ang;
+       real beta0_U_SARS_AngToSARS_COV2;
+       real<lower=0> beta_U_SARS_AngToSARS_COV2;
+       real<lower=10, upper=30> beta0_SARS_COV2ToACE2;
+       real<upper=0> beta_SARS_COV2ToACE2;
+       real<lower=10, upper=30> beta0_ACE2_and_U_SARS_Ang_ToAng;
+       real<upper=0> beta_ACE2ToAng;
+       real<lower=0> beta_U_SARS_AngToAng;
+       real beta0_AngToAGTR1;
+       real<lower=0> beta_AngToAGTR1;
+       real<lower=0> mu_U_ADAM17_Sil6r;
+       real<lower=0> sigma_U_ADAM17_Sil6r;
+       real beta0_AGTR1_UToADAM17;
+       real<lower=0> beta_AGTR1ToADAM17;
+       real<lower=0> beta_U_ADAM17_Sil6rToADAM17;
+       real<lower=0> mu_Toci;
+       real<lower=0> sigma_Toci;
+       real beta0_ADAM17_U_TociToSil6r;
+       real<lower=0> beta_ADAM17ToSil6r;
+       real<lower=0> beta_UToSil6r;
+       real<upper=0> beta_TociToSil6r;
+       real<lower=0> mu_U_EGF_EGFR;
+       real<lower=0> sigma_U_EGF_EGFR;
+       real beta0_ADAM17_UToEGF;
+       real<lower=0> beta_ADAM17ToEGF;
+       real<lower=0> beta_UToEGF;
+       real<lower=0> mu_U_EGFR_TNF;
+       real<lower=0> sigma_U_EGFR_TNF;
+       real beta0_ADAM17_UToTNF;
+       real<lower=0> beta_ADAM17ToTNF;
+       real<lower=0> beta_UToTNF;
+       real<lower=0> mu_U_EGFR_IL6STAT3;
+       real<lower=0> sigma_U_EGFR_IL6STAT3;
+       real beta0_EGF_3U;
+       real<lower=0> mu_Gefi;
+       real<lower=0> sigma_Gefi;
+       real<lower=0> beta_EGFToEGFR;
+       real<lower=0> beta_U1ToEGFR;
+       real<lower=0> beta_U2ToEGFR;
+       real<lower=0> beta_U3ToEGFR; 
+       real<upper=0> beta_GefiToEGFR;
+       real<lower=0> mu_U_PRR_NFKB;
+       real<lower=0> sigma_U_PRR_NFKB;
+       real beta0_SARS_UPRR;
+       real<lower=0> beta_SARS_COV2ToPRR;
+       real<lower=0> beta_UToPRR;
+       real beta0_PRR_U_EGFR_TNFToNFKB;
+       real<lower=0> beta_PRRToNFKB;
+       real<lower=0> beta_UToNFKB;
+       real<lower=0> beta_EGFRToNFKB;
+       real<lower=0> beta_TNFToNFKB;
+       real beta0_NFKB_IL6STSTToIL6STAT3;
+       real<lower=0> beta_UToIL6STAT3;
+       real<lower=0> beta_Sil6rToIL6STAT3;
+       real beta0_NFKB_IL6STATToIL6AMP;
+       real<lower=0> beta_NFKBToIL6AMP;
+       real<lower=0> beta_IL6STAT3ToIL6AMP;
+       real beta0_IL6AMPTocytok;
+       real<lower=0> beta_IL6AMPTocytok;
+       vector[D] U_SARS_Ang;
+       vector[D] U_ADAM17_Sil6r;
+       vector[D] U_EGF_EGFR;
+       vector[D] U_EGFR_TNF;
+       vector[D] U_EGFR_IL6STAT3;
+       vector[D] U_PRR_NFKB;
+    }
+    transformed parameters {
+      vector[D] SARS_COV2_loc;
+      vector[D] ACE2_loc;
+      vector[D] Ang_loc;
+      vector[D] AGTR1_loc;
+      vector[D] ADAM17_loc;
+      vector[D] Sil6r_loc;
+      vector[D] EGF_loc;
+      vector[D] TNF_loc;
+      vector[D] EGFR_loc;
+      vector[D] PRR_loc;
+      vector[D] NFKB_loc;
+      vector[D] IL6STAT3_loc;
+      vector[D] IL6AMP_loc;
+      for (i in 1:D){
+        SARS_COV2_loc[i] = 100 / (1 + exp(-beta0_U_SARS_AngToSARS_COV2 -U_SARS_Ang[i] * beta_U_SARS_AngToSARS_COV2));
+        ACE2_loc[i] = beta0_SARS_COV2ToACE2 + SARS_COV2[i] * beta_SARS_COV2ToACE2;
+        Ang_loc[i] = beta0_ACE2_and_U_SARS_Ang_ToAng + ACE2[i] * beta_ACE2ToAng + U_SARS_Ang[i] * beta_U_SARS_AngToAng;
+        AGTR1_loc[i] = 100 / (1 + exp(-beta0_AngToAGTR1 - Ang[i] * beta_AngToAGTR1));
+        ADAM17_loc[i] = 100 / (1 + exp(-beta0_AGTR1_UToADAM17 - AGTR1[i] * beta_AGTR1ToADAM17 - U_ADAM17_Sil6r[i] * beta_U_ADAM17_Sil6rToADAM17));
+        Sil6r_loc[i] = 100 / (1 + exp(-beta0_ADAM17_U_TociToSil6r - ADAM17[i] * beta_ADAM17ToSil6r - U_ADAM17_Sil6r[i] * beta_UToSil6r - Toci[i] * beta_TociToSil6r));
+        EGF_loc[i] = 100 / (1 + exp(-beta0_ADAM17_UToEGF - ADAM17[i] * beta_ADAM17ToEGF - U_EGF_EGFR[i] * beta_UToEGF));
+        TNF_loc[i] = 100 / (1 + exp(-beta0_ADAM17_UToTNF - ADAM17[i] * beta_ADAM17ToTNF - U_EGFR_TNF[i] * beta_UToTNF));
+        EGFR_loc[i] = 100 / (1 + exp(-beta0_EGF_3U - EGF[i] * beta_EGFToEGFR - U_EGFR_IL6STAT3[i] * beta_U1ToEGFR - U_EGFR_TNF[i] * beta_U2ToEGFR  - U_EGF_EGFR[i] * beta_U3ToEGFR - Gefi[i] * beta_GefiToEGFR));
+        PRR_loc[i] = 100 / (1 + exp(-beta0_SARS_UPRR - SARS_COV2[i] * beta_SARS_COV2ToPRR - U_PRR_NFKB[i] * beta_UToPRR));
+        NFKB_loc[i] = 100 / (1 + exp(-beta0_PRR_U_EGFR_TNFToNFKB - PRR[i] * beta_PRRToNFKB - U_PRR_NFKB[i] * beta_UToNFKB - EGFR[i] * beta_EGFRToNFKB  - TNF[i] * beta_TNFToNFKB));
+        IL6STAT3_loc[i] = 100 / (1 + exp(-beta0_NFKB_IL6STSTToIL6STAT3 - U_EGFR_IL6STAT3[i] * beta_UToIL6STAT3 - Sil6r[i] * beta_Sil6rToIL6STAT3));
+        IL6AMP_loc[i] = 100 / (1 + exp(-beta0_NFKB_IL6STATToIL6AMP - NFKB[i] * beta_NFKBToIL6AMP - IL6STAT3[i] * beta_IL6STAT3ToIL6AMP));
+      }
+    }
+    model {
+        mu_U_SARS_Ang ~ normal(45, 1); 
+        sigma_U_SARS_Ang ~ normal(10, 1); 
+        beta0_U_SARS_AngToSARS_COV2 ~ normal(0, 10);
+        beta_U_SARS_AngToSARS_COV2 ~ normal(0,10);
+        beta0_SARS_COV2ToACE2 ~ normal(20,10);
+        beta_SARS_COV2ToACE2 ~ normal(0,10);
+        beta0_ACE2_and_U_SARS_Ang_ToAng ~ normal(20,10);
+        beta_ACE2ToAng ~ normal(0,10);
+        beta_U_SARS_AngToAng ~ normal(0,10);
+        beta0_AngToAGTR1 ~ normal(0,10);
+        beta_AngToAGTR1 ~ normal(0,10);
+        beta0_AGTR1_UToADAM17 ~ normal(0,10);
+        beta_AGTR1ToADAM17 ~ normal(0,10);
+        beta_U_ADAM17_Sil6rToADAM17 ~ normal(0,10);
+        mu_Toci ~ normal(45, 1);
+        sigma_Toci ~ normal(10, 1);
+        beta0_ADAM17_U_TociToSil6r ~ normal(0, 10);
+        beta_ADAM17ToSil6r ~ normal(0, 10);
+        beta_UToSil6r ~ normal(0, 10);
+        beta_TociToSil6r ~ normal(0, 10);
+        mu_U_EGF_EGFR ~ normal(50,1);
+        sigma_U_EGF_EGFR ~ normal(10,1);
+        beta0_ADAM17_UToEGF ~ normal(0,10);
+        beta_ADAM17ToEGF ~ normal(0,10);
+        beta_UToEGF ~ normal(0,10);
+        mu_U_EGFR_TNF ~ normal(45,1);
+        sigma_U_EGFR_TNF ~ normal(10,1);
+        beta0_ADAM17_UToTNF ~ normal(0, 10);
+        beta_ADAM17ToTNF ~ normal(0, 10);
+        beta_UToTNF ~ normal(0, 10);
+        mu_U_EGFR_IL6STAT3 ~ normal(40,1);
+        sigma_U_EGFR_IL6STAT3 ~ normal(10,1);
+        beta0_EGF_3U ~ normal(0, 10);
+        mu_Gefi ~ normal(40,1);
+        sigma_Gefi ~ normal(10,1);
+        beta_EGFToEGFR ~ normal(0, 10);
+        beta_U1ToEGFR ~ normal(0, 10);
+        beta_U2ToEGFR ~ normal(0, 10);
+        beta_U3ToEGFR ~ normal(0, 10); 
+        beta_GefiToEGFR ~ normal(0, 10);
+        mu_U_PRR_NFKB ~ normal(40, 1);
+        sigma_U_PRR_NFKB ~ normal(10,1);
+        beta0_SARS_UPRR ~ normal(0, 10);
+        beta_SARS_COV2ToPRR ~ normal(0, 10);
+        beta_UToPRR ~ normal(0, 10);
+        beta_PRRToNFKB ~ normal(0, 10);
+        beta_UToNFKB ~ normal(0, 10);
+        beta_EGFRToNFKB ~ normal(0, 10);
+        beta_TNFToNFKB ~ normal(0, 10);
+        beta0_NFKB_IL6STSTToIL6STAT3 ~ normal(0, 10);
+        beta_UToIL6STAT3 ~ normal(0, 10);
+        beta_Sil6rToIL6STAT3 ~ normal(0, 10);
+        beta0_NFKB_IL6STATToIL6AMP ~ normal(0, 10);
+        beta_NFKBToIL6AMP ~ normal(0, 10);
+        beta_IL6STAT3ToIL6AMP ~ normal(0, 10); 
+        beta0_IL6AMPTocytok ~ normal(0, 10);
+        beta_IL6AMPTocytok ~ normal(0, 10);         
+        //
+        U_SARS_Ang ~ normal(mu_U_SARS_Ang, sigma_U_SARS_Ang);      // likelihood
+        SARS_COV2 ~ normal(SARS_COV2_loc, 101);
+        ACE2 ~ normal(ACE2_loc,1.6);
+        Ang ~ normal(Ang_loc,6);
+        AGTR1 ~ normal(AGTR1_loc,7.6);
+        ADAM17 ~ normal(ADAM17_loc,8.7);
+        U_ADAM17_Sil6r ~ normal(mu_U_ADAM17_Sil6r, sigma_U_ADAM17_Sil6r);
+        Toci ~ normal(mu_Toci, sigma_Toci);
+        Sil6r ~ normal(Sil6r_loc,17.9);
+        U_EGF_EGFR ~ normal(mu_U_EGF_EGFR, sigma_U_EGF_EGFR);
+        EGF ~ normal(EGF_loc,7);
+        U_EGFR_TNF ~ normal(mu_U_EGFR_TNF,sigma_U_EGFR_TNF);
+        TNF ~ normal(TNF_loc, 6.5);
+        U_EGFR_IL6STAT3 ~ normal(mu_U_EGFR_IL6STAT3, sigma_U_EGFR_IL6STAT3);
+        Gefi ~ normal(mu_Gefi, sigma_Gefi);
+        EGFR ~ normal(EGFR_loc, 13.3);
+        U_PRR_NFKB ~ normal(mu_U_PRR_NFKB,sigma_U_PRR_NFKB);
+        PRR ~ normal(PRR_loc,14.1);
+        NFKB ~ normal(NFKB_loc,10);
+        IL6STAT3 ~ normal(IL6STAT3_loc, 18.6);
+        IL6AMP ~ normal(IL6AMP_loc, 12);
+        for(i in 1:D) {
+        cytok[i] ~ bernoulli_logit(beta0_IL6AMPTocytok + IL6AMP[i] * beta_IL6AMPTocytok);
+        }
+    }
+"
+```
+
+```{r, message=FALSE, warning=FALSE}
+mod_misspecify <- rstan::stan_model(model_code = model_str_covid_misspecify)
+```
+
+## Mutilated model
+
+```{r}
+parameters_misspecify <- c("mu_U_SARS_Ang", "sigma_U_SARS_Ang"
+                                     ,"beta0_U_SARS_AngToSARS_COV2","beta_U_SARS_AngToSARS_COV2"
+                                     ,"beta0_SARS_COV2ToACE2", "beta_SARS_COV2ToACE2"
+                                     ,"beta0_ACE2_and_U_SARS_Ang_ToAng", "beta_ACE2ToAng", "beta_U_SARS_AngToAng"
+                                     ,"beta0_AngToAGTR1", "beta_AngToAGTR1"
+                                     ,"mu_U_ADAM17_Sil6r", "sigma_U_ADAM17_Sil6r"
+                                     ,"beta0_AGTR1_UToADAM17", "beta_AGTR1ToADAM17","beta_U_ADAM17_Sil6rToADAM17"
+                                     ,"mu_Toci", "sigma_Toci"
+                                     ,"beta0_ADAM17_U_TociToSil6r", "beta_ADAM17ToSil6r", "beta_UToSil6r", "beta_TociToSil6r"
+                                     ,"mu_U_EGF_EGFR", "sigma_U_EGF_EGFR"
+                                     ,"beta0_ADAM17_UToEGF", "beta_ADAM17ToEGF", "beta_UToEGF"
+                                     ,"mu_U_EGFR_TNF", "sigma_U_EGFR_TNF"
+                                     ,"beta0_ADAM17_UToTNF", "beta_ADAM17ToTNF", "beta_UToTNF"
+                                     ,"mu_U_EGFR_IL6STAT3", "sigma_U_EGFR_IL6STAT3"
+                                     ,"beta0_EGF_3U", "beta_EGFToEGFR", "beta_U1ToEGFR", "beta_U2ToEGFR", "beta_U3ToEGFR", "beta_GefiToEGFR"
+                                     ,"mu_U_PRR_NFKB", "sigma_U_PRR_NFKB"
+                                     ,"beta0_SARS_UPRR", "beta_SARS_COV2ToPRR", "beta_UToPRR"
+                                     ,"beta0_PRR_U_EGFR_TNFToNFKB", "beta_PRRToNFKB", "beta_UToNFKB", "beta_EGFRToNFKB", "beta_TNFToNFKB"  
+                                     ,"beta0_NFKB_IL6STSTToIL6STAT3", "beta_UToIL6STAT3", "beta_Sil6rToIL6STAT3"
+                                     ,"beta0_NFKB_IL6STATToIL6AMP", "beta_NFKBToIL6AMP", "beta_IL6STAT3ToIL6AMP"
+                                     ,"beta0_IL6AMPTocytok", "beta_IL6AMPTocytok", "mu_Gefi", "sigma_Gefi")
+```
+
+```{r}
+num_samples = 1000
+mutilated_model_misspecify_sil6r <- function(mu_U_SARS_Ang, sigma_U_SARS_Ang
+                            ,beta0_U_SARS_AngToSARS_COV2,beta_U_SARS_AngToSARS_COV2
+                            ,beta0_SARS_COV2ToACE2, beta_SARS_COV2ToACE2
+                            ,beta0_ACE2_and_U_SARS_Ang_ToAng, beta_ACE2ToAng, beta_U_SARS_AngToAng
+                            ,beta0_AngToAGTR1, beta_AngToAGTR1
+                            ,mu_U_ADAM17_Sil6r,sigma_U_ADAM17_Sil6r
+                            ,beta0_AGTR1_UToADAM17,beta_AGTR1ToADAM17, beta_U_ADAM17_Sil6rToADAM17
+                            ,mu_Toci, sigma_Toci
+                            ,beta0_ADAM17_U_TociToSil6r, beta_ADAM17ToSil6r, beta_UToSil6r, beta_TociToSil6r
+                            ,mu_U_EGF_EGFR, sigma_U_EGF_EGFR
+                            ,beta0_ADAM17_UToEGF, beta_ADAM17ToEGF, beta_UToEGF
+                            ,mu_U_EGFR_TNF, sigma_U_EGFR_TNF
+                            ,beta0_ADAM17_UToTNF, beta_ADAM17ToTNF, beta_UToTNF
+                            ,mu_U_EGFR_IL6STAT3,sigma_U_EGFR_IL6STAT3
+                            ,beta0_EGF_3U, beta_EGFToEGFR, beta_U1ToEGFR, beta_U2ToEGFR, beta_U3ToEGFR, beta_GefiToEGFR
+                            ,mu_U_PRR_NFKB, sigma_U_PRR_NFKB
+                            ,beta0_SARS_UPRR, beta_SARS_COV2ToPRR, beta_UToPRR
+                            ,beta0_PRR_U_EGFR_TNFToNFKB, beta_PRRToNFKB, beta_UToNFKB, beta_EGFRToNFKB, beta_TNFToNFKB
+                            ,beta0_NFKB_IL6STSTToIL6STAT3, beta_UToIL6STAT3, beta_Sil6rToIL6STAT3
+                            ,beta0_NFKB_IL6STATToIL6AMP, beta_NFKBToIL6AMP, beta_IL6STAT3ToIL6AMP
+                            ,beta0_IL6AMPTocytok, beta_IL6AMPTocytok
+                            ,mu_Gefi, sigma_Gefi
+                            ,seed, data_count
+) {
+    set.seed(seed)
+    U_SARS_Ang_1 <- rnorm(num_samples, mu_U_SARS_Ang, sigma_U_SARS_Ang)
+    SARS_COV2_1 = #rnorm(num_samples,
+                        100 / (1 + exp(-beta0_U_SARS_AngToSARS_COV2 - U_SARS_Ang_1 * beta_U_SARS_AngToSARS_COV2))#,
+                        #sqrt(var(obs_data_list[[data_count]]$SARS_COV2))
+                        #)
+    ACE2_1 = #rnorm(num_samples,
+                   beta0_SARS_COV2ToACE2 + SARS_COV2_1 * beta_SARS_COV2ToACE2#,
+                   #sqrt(var(obs_data_list[[data_count]]$ACE2))
+                   #)
+    Ang_1 = #rnorm(num_samples,
+                  beta0_ACE2_and_U_SARS_Ang_ToAng + ACE2_1 * beta_ACE2ToAng + U_SARS_Ang_1 *beta_U_SARS_AngToAng#,
+                  #sqrt(var(obs_data_list[[data_count]]$Ang))
+                  #)
+    AGTR1_1 = #rnorm(num_samples,
+                    100 / (1 + exp(-beta0_AngToAGTR1 - Ang_1 * beta_AngToAGTR1))#,
+                    #sqrt(var(obs_data_list[[data_count]]$AGTR1))
+                    #)
+    U_ADAM17_Sil6r_1 = rnorm(num_samples,mu_U_ADAM17_Sil6r,sigma_U_ADAM17_Sil6r)
+    ADAM17_1 = #rnorm(num_samples,
+                     100 / (1 + exp(-beta0_AGTR1_UToADAM17 - AGTR1_1 * beta_AGTR1ToADAM17 - U_ADAM17_Sil6r_1 * beta_U_ADAM17_Sil6rToADAM17))#,
+                     #sqrt(var(obs_data_list[[data_count]]$ADAM17))
+                     #)
+    Toci_1 = rnorm(num_samples,mu_Toci, sigma_Toci)
+    
+    Sil6r_1 = rep(20, num_samples)
+    
+    U_EGF_EGFR_1 = rnorm(num_samples, mu_U_EGF_EGFR, sigma_U_EGF_EGFR)
+    EGF_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_ADAM17_UToEGF - ADAM17_1 * beta_ADAM17ToEGF - U_EGF_EGFR_1 * beta_UToEGF))#,
+                  #sqrt(var(obs_data_list[[data_count]]$EGF))
+                  #)
+    U_EGFR_TNF_1 = rnorm(num_samples, mu_U_EGFR_TNF, sigma_U_EGFR_TNF)
+    TNF_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_ADAM17_UToTNF - ADAM17_1 * beta_ADAM17ToTNF - U_EGFR_TNF_1 * beta_UToTNF))# ,
+                  #sqrt(var(obs_data_list[[data_count]]$TNF))
+                  #)
+    U_EGFR_IL6STAT3_1 =  rnorm(num_samples, mu_U_EGFR_IL6STAT3, sigma_U_EGFR_IL6STAT3)
+    Gefi_1 = rnorm(num_samples,mu_Gefi, sigma_Gefi)
+    EGFR_1 = #rnorm(num_samples,
+                   100 / (1 + exp(-beta0_EGF_3U - EGF_1 * beta_EGFToEGFR - U_EGFR_IL6STAT3_1 * beta_U1ToEGFR - U_EGFR_TNF_1 * beta_U2ToEGFR  - U_EGF_EGFR_1 * beta_U3ToEGFR - Gefi_1 * beta_GefiToEGFR))#,
+                   #sqrt(var(obs_data_list[[data_count]]$EGFR))
+                   #)
+    U_PRR_NFKB_1 = rnorm(num_samples, mu_U_PRR_NFKB, sigma_U_PRR_NFKB)
+    PRR_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_SARS_UPRR - SARS_COV2_1 * beta_SARS_COV2ToPRR - U_PRR_NFKB_1 * beta_UToPRR))# ,
+                  #sqrt(var(obs_data_list[[data_count]]$PRR))
+                  #)
+    NFKB_1 = #rnorm(num_samples,
+                   100 / (1 + exp(-beta0_PRR_U_EGFR_TNFToNFKB - PRR_1 * beta_PRRToNFKB - U_PRR_NFKB_1 * beta_UToNFKB - EGFR_1 * beta_EGFRToNFKB  - TNF_1 * beta_TNFToNFKB))# ,
+                   #sqrt(var(obs_data_list[[data_count]]$NFKB))
+                   #)
+    IL6STAT3_1 = #rnorm(num_samples,
+                       100 / (1 + exp(-beta0_NFKB_IL6STSTToIL6STAT3 - U_EGFR_IL6STAT3_1 * beta_UToIL6STAT3 - Sil6r_1 * beta_Sil6rToIL6STAT3))#,
+                       #sqrt(var(obs_data_list[[data_count]]$IL6STAT3))
+                       #)
+    IL6AMP_1 = #rnorm(num_samples,
+                     100 / (1 + exp(-beta0_NFKB_IL6STATToIL6AMP - NFKB_1 * beta_NFKBToIL6AMP - IL6STAT3_1 * beta_IL6STAT3ToIL6AMP))#,
+                     #sqrt(var(obs_data_list[[data_count]]$IL6AMP))
+                     #)
+    p_cytok = 1 / (1 + exp(-beta0_IL6AMPTocytok - IL6AMP_1 * beta_IL6AMPTocytok))
+    cytok_1 = rbinom(n = num_samples, size = 1, prob = p_cytok)
+    return(cytok_1)
+}
+```
+
+
+```{r}
+num_samples = 1000
+mutilated_model_misspecify_egfr <- function(mu_U_SARS_Ang, sigma_U_SARS_Ang
+                            ,beta0_U_SARS_AngToSARS_COV2,beta_U_SARS_AngToSARS_COV2
+                            ,beta0_SARS_COV2ToACE2, beta_SARS_COV2ToACE2
+                            ,beta0_ACE2_and_U_SARS_Ang_ToAng, beta_ACE2ToAng, beta_U_SARS_AngToAng
+                            ,beta0_AngToAGTR1, beta_AngToAGTR1
+                            ,mu_U_ADAM17_Sil6r,sigma_U_ADAM17_Sil6r
+                            ,beta0_AGTR1_UToADAM17,beta_AGTR1ToADAM17, beta_U_ADAM17_Sil6rToADAM17
+                            ,mu_Toci, sigma_Toci
+                            ,beta0_ADAM17_U_TociToSil6r, beta_ADAM17ToSil6r, beta_UToSil6r, beta_TociToSil6r
+                            ,mu_U_EGF_EGFR, sigma_U_EGF_EGFR
+                            ,beta0_ADAM17_UToEGF, beta_ADAM17ToEGF, beta_UToEGF
+                            ,mu_U_EGFR_TNF, sigma_U_EGFR_TNF
+                            ,beta0_ADAM17_UToTNF, beta_ADAM17ToTNF, beta_UToTNF
+                            ,mu_U_EGFR_IL6STAT3,sigma_U_EGFR_IL6STAT3
+                            ,beta0_EGF_3U, beta_EGFToEGFR, beta_U1ToEGFR, beta_U2ToEGFR, beta_U3ToEGFR, beta_GefiToEGFR
+                            ,mu_U_PRR_NFKB, sigma_U_PRR_NFKB
+                            ,beta0_SARS_UPRR, beta_SARS_COV2ToPRR, beta_UToPRR
+                            ,beta0_PRR_U_EGFR_TNFToNFKB, beta_PRRToNFKB, beta_UToNFKB, beta_EGFRToNFKB, beta_TNFToNFKB
+                            ,beta0_NFKB_IL6STSTToIL6STAT3, beta_UToIL6STAT3, beta_Sil6rToIL6STAT3
+                            ,beta0_NFKB_IL6STATToIL6AMP, beta_NFKBToIL6AMP, beta_IL6STAT3ToIL6AMP
+                            ,beta0_IL6AMPTocytok, beta_IL6AMPTocytok
+                            ,mu_Gefi, sigma_Gefi
+                            ,seed, data_count
+) {
+    set.seed(seed)
+    U_SARS_Ang_1 <- rnorm(num_samples, mu_U_SARS_Ang, sigma_U_SARS_Ang)
+    SARS_COV2_1 = #rnorm(num_samples,
+                        100 / (1 + exp(-beta0_U_SARS_AngToSARS_COV2 - U_SARS_Ang_1 * beta_U_SARS_AngToSARS_COV2))#,
+                        #sqrt(var(obs_data_list[[data_count]]$SARS_COV2))
+                        #)
+    ACE2_1 = #rnorm(num_samples,
+                   beta0_SARS_COV2ToACE2 + SARS_COV2_1 * beta_SARS_COV2ToACE2#,
+                   #sqrt(var(obs_data_list[[data_count]]$ACE2))
+                   #)
+    Ang_1 = #rnorm(num_samples,
+                  beta0_ACE2_and_U_SARS_Ang_ToAng + ACE2_1 * beta_ACE2ToAng + U_SARS_Ang_1 *beta_U_SARS_AngToAng#,
+                  #sqrt(var(obs_data_list[[data_count]]$Ang))
+                  #)
+    AGTR1_1 = #rnorm(num_samples,
+                    100 / (1 + exp(-beta0_AngToAGTR1 - Ang_1 * beta_AngToAGTR1))#,
+                    #sqrt(var(obs_data_list[[data_count]]$AGTR1))
+                    #)
+    U_ADAM17_Sil6r_1 = rnorm(num_samples,mu_U_ADAM17_Sil6r,sigma_U_ADAM17_Sil6r)
+    ADAM17_1 = #rnorm(num_samples,
+                     100 / (1 + exp(-beta0_AGTR1_UToADAM17 - AGTR1_1 * beta_AGTR1ToADAM17 - U_ADAM17_Sil6r_1 * beta_U_ADAM17_Sil6rToADAM17))#,
+                     #sqrt(var(obs_data_list[[data_count]]$ADAM17))
+                     #)
+    Toci_1 = rnorm(num_samples,mu_Toci, sigma_Toci)
+    
+    #Sil6r_1 = rep(20, num_samples)
+    Sil6r_1 = #rnorm(num_samples,
+      100 / (1 + exp(-beta0_ADAM17_U_TociToSil6r - ADAM17_1 * beta_ADAM17ToSil6r - U_ADAM17_Sil6r_1 * beta_UToSil6r - Toci_1 * beta_TociToSil6r))#,
+    #sqrt(var(obs_data_list[[data_count]]$EGF))
+    #)
+    
+    U_EGF_EGFR_1 = rnorm(num_samples, mu_U_EGF_EGFR, sigma_U_EGF_EGFR)
+    EGF_1 = #rnorm(num_samples,
+                  100 / (1 + exp(-beta0_ADAM17_UToEGF - ADAM17_1 * beta_ADAM17ToEGF - U_EGF_EGFR_1 * beta_UToEGF))#,
+                  #sqrt(var(obs_data_list[[data_count]]$EGF))
+                  #)
+    U_EGFR_TNF_1 = rnorm(num_samples, mu_U_EGFR_TNF, sigma_U_EGFR_TNF)
+    TNF_1 = #rnorm(num_samples,
+      100 / (1 + exp(-beta0_ADAM17_UToTNF - ADAM17_1 * beta_ADAM17ToTNF - U_EGFR_TNF_1 * beta_UToTNF))# ,
+    #sqrt(var(obs_data_list[[data_count]]$TNF))
+    #)
+    U_EGFR_IL6STAT3_1 =  rnorm(num_samples, mu_U_EGFR_IL6STAT3, sigma_U_EGFR_IL6STAT3)
+    Gefi_1 = rnorm(num_samples, mu_Gefi, sigma_Gefi)
+    EGFR_1 = rep(20, num_samples)
+    U_PRR_NFKB_1 = rnorm(num_samples, mu_U_PRR_NFKB, sigma_U_PRR_NFKB)
+    PRR_1 = #rnorm(num_samples,
+      100 / (1 + exp(-beta0_SARS_UPRR - SARS_COV2_1 * beta_SARS_COV2ToPRR - U_PRR_NFKB_1 * beta_UToPRR))# ,
+    #sqrt(var(obs_data_list[[data_count]]$PRR))
+    #)
+    NFKB_1 = #rnorm(num_samples,
+                   100 / (1 + exp(-beta0_PRR_U_EGFR_TNFToNFKB - PRR_1 * beta_PRRToNFKB - U_PRR_NFKB_1 * beta_UToNFKB - EGFR_1 * beta_EGFRToNFKB  - TNF_1 * beta_TNFToNFKB))# ,
+                   #sqrt(var(obs_data_list[[data_count]]$NFKB))
+                   #)
+    IL6STAT3_1 = #rnorm(num_samples,
+                       100 / (1 + exp(-beta0_NFKB_IL6STSTToIL6STAT3 - U_EGFR_IL6STAT3_1 * beta_UToIL6STAT3 - Sil6r_1 * beta_Sil6rToIL6STAT3))#,
+                       #sqrt(var(obs_data_list[[data_count]]$IL6STAT3))
+                       #)
+    IL6AMP_1 = #rnorm(num_samples,
+                     100 / (1 + exp(-beta0_NFKB_IL6STATToIL6AMP - NFKB_1 * beta_NFKBToIL6AMP - IL6STAT3_1 * beta_IL6STAT3ToIL6AMP))#,
+                     #sqrt(var(obs_data_list[[data_count]]$IL6AMP))
+                     #)
+    p_cytok = 1 / (1 + exp(-beta0_IL6AMPTocytok - IL6AMP_1 * beta_IL6AMPTocytok))
+    cytok_1 = rbinom(n = num_samples, size = 1, prob = p_cytok)
+    return(cytok_1)
+}
+```
+
+
+```{r}
+# seed = 5
+# hmc_fit_list_misspecify <- rep(list(list()), K)
+# 
+# start_time <- Sys.time()
+# 
+# for (num_data_points in ndp) {
+#   print("num_data_points is:")
+#   print(num_data_points)
+#   for (data_count in 1:K) {
+#     print("data_count is:")
+#     print(data_count)
+#     data_list <- list(D=num_data_points
+#                       ,SARS_COV2 = obs_data_list[[data_count]]$SARS_COV2[1:num_data_points]
+#                       ,ACE2 = obs_data_list[[data_count]]$ACE2[1:num_data_points]
+#                       ,Ang = obs_data_list[[data_count]]$Ang[1:num_data_points]
+#                       ,AGTR1 = obs_data_list[[data_count]]$AGTR1[1:num_data_points]
+#                       ,ADAM17 = obs_data_list[[data_count]]$ADAM17[1:num_data_points]
+#                       ,Toci = obs_data_list[[data_count]]$Toci[1:num_data_points]
+#                       ,Sil6r = obs_data_list[[data_count]]$Sil6r[1:num_data_points]
+#                       ,EGF = obs_data_list[[data_count]]$EGF[1:num_data_points]
+#                       ,TNF = obs_data_list[[data_count]]$TNF[1:num_data_points]
+#                       ,Gefi = obs_data_list[[data_count]]$Gefi[1:num_data_points]
+#                       ,EGFR = obs_data_list[[data_count]]$EGFR[1:num_data_points]
+#                       ,PRR = obs_data_list[[data_count]]$PRR[1:num_data_points]
+#                       ,NFKB = obs_data_list[[data_count]]$NFKB[1:num_data_points]
+#                       ,IL6STAT3= obs_data_list[[data_count]]$IL6STAT3[1:num_data_points]
+#                       ,IL6AMP = obs_data_list[[data_count]]$IL6AMP[1:num_data_points]
+#                       ,cytok = obs_data_list[[data_count]]$cytok[1:num_data_points]
+#     )
+# 
+#     hmc_fit_list_misspecify[[data_count]][[paste0("num_data_points_",num_data_points)]] <- rstan::sampling(mod_misspecify, data=data_list, chains = 2, iter = 3000, warmup = 1500, seed = 2, control = list(max_treedepth = 15)) #seed = 1
+#   }
+# }
+# 
+# end_time <- Sys.time()
+# end_time - start_time
+# # Time difference of 2.749777 days
+# saveRDS(hmc_fit_list_misspecify, file = "hmc_fit_list_misspecify.RData")
+```
+
+```{r}
+hmc_fit_list_misspecify <- readRDS(file = "data/Case3_Covid/output/hmc_fit_list_Case3_misspecify.RData")
+
+estimated_y_hmc_list_misspecify_egfr <- rep(list(list()), K)
+estimated_y_hmc_list_misspecify_sil6r <- rep(list(list()), K)
+means_hmc_misspecify_egfr <- c()
+means_hmc_misspecify_sil6r <- c()
+means_hmc_list_misspecify_egfr <- list()
+means_hmc_list_misspecify_sil6r <- list()
+
+for (num_data_points in ndp) {
+  print("num_data_points is:")
+  print(num_data_points)
+  for (data_count in 1:K) {
+    print("data_count is:")
+    print(data_count)    
+    samples_hmc_misspecify <- rstan::extract(hmc_fit_list_misspecify[[data_count]][[paste0("num_data_points_",num_data_points)]], parameters_misspecify)
+    
+    estimated_y_hmc_list_misspecify_egfr[[data_count]][[paste0("num_data_points_",num_data_points)]] <-  mutilated_model_misspecify_egfr(
+                                                                                 mu_U_SARS_Ang = mean(samples_hmc_misspecify$mu_U_SARS_Ang),
+                                                                                 sigma_U_SARS_Ang = mean(samples_hmc_misspecify$sigma_U_SARS_Ang),
+                                                                                 beta0_U_SARS_AngToSARS_COV2 = mean(samples_hmc_misspecify$beta0_U_SARS_AngToSARS_COV2),
+                                                                                 beta_U_SARS_AngToSARS_COV2 = mean(samples_hmc_misspecify$beta_U_SARS_AngToSARS_COV2),
+                                                                                 beta0_SARS_COV2ToACE2 = mean(samples_hmc_misspecify$beta0_SARS_COV2ToACE2),
+                                                                                 beta_SARS_COV2ToACE2 = mean(samples_hmc_misspecify$beta_SARS_COV2ToACE2),
+                                                                                 beta0_ACE2_and_U_SARS_Ang_ToAng = mean(samples_hmc_misspecify$beta0_ACE2_and_U_SARS_Ang_ToAng),
+                                                                                 beta_ACE2ToAng = mean(samples_hmc_misspecify$beta_ACE2ToAng),
+                                                                                 beta_U_SARS_AngToAng = mean(samples_hmc_misspecify$beta_U_SARS_AngToAng),
+                                                                                 beta0_AngToAGTR1 = mean(samples_hmc_misspecify$beta0_AngToAGTR1),
+                                                                                 beta_AngToAGTR1 = mean(samples_hmc_misspecify$beta_AngToAGTR1),
+                                                                                 mu_U_ADAM17_Sil6r = mean(samples_hmc_misspecify$mu_U_ADAM17_Sil6r),
+                                                                                 sigma_U_ADAM17_Sil6r = mean(samples_hmc_misspecify$sigma_U_ADAM17_Sil6r),
+                                                                                 beta0_AGTR1_UToADAM17 = mean(samples_hmc_misspecify$beta0_AGTR1_UToADAM17),
+                                                                                 beta_AGTR1ToADAM17 = mean(samples_hmc_misspecify$beta_AGTR1ToADAM17),
+                                                                                 mean(samples_hmc_misspecify$beta_U_ADAM17_Sil6rToADAM17),
+                                                                                 mean(samples_hmc_misspecify$mu_Toci),
+                                                                                 mean(samples_hmc_misspecify$sigma_Toci),
+                                                                                 mean(samples_hmc_misspecify$beta0_ADAM17_U_TociToSil6r),
+                                                                                 mean(samples_hmc_misspecify$beta_ADAM17ToSil6r),
+                                                                                 mean(samples_hmc_misspecify$beta_UToSil6r),
+                                                                                 mean(samples_hmc_misspecify$beta_TociToSil6r),
+                                                                                 mean(samples_hmc_misspecify$mu_U_EGF_EGFR),
+                                                                                 mean(samples_hmc_misspecify$sigma_U_EGF_EGFR),
+                                                                                 mean(samples_hmc_misspecify$beta0_ADAM17_UToEGF),
+                                                                                 mean(samples_hmc_misspecify$beta_ADAM17ToEGF),
+                                                                                 mean(samples_hmc_misspecify$beta_UToEGF),
+                                                                                 mean(samples_hmc_misspecify$mu_U_EGFR_TNF),
+                                                                                 mean(samples_hmc_misspecify$sigma_U_EGFR_TNF),
+                                                                                 mean(samples_hmc_misspecify$beta0_ADAM17_UToTNF),
+                                                                                 mean(samples_hmc_misspecify$beta_ADAM17ToTNF),
+                                                                                 mean(samples_hmc_misspecify$beta_UToTNF),
+                                                                                 mean(samples_hmc_misspecify$mu_U_EGFR_IL6STAT3),
+                                                                                 mean(samples_hmc_misspecify$sigma_U_EGFR_IL6STAT3),
+                                                                                 mean(samples_hmc_misspecify$beta0_EGF_3U),
+                                                                                 mean(samples_hmc_misspecify$beta_EGFToEGFR),
+                                                                                 mean(samples_hmc_misspecify$beta_U1ToEGFR),
+                                                                                 mean(samples_hmc_misspecify$beta_U2ToEGFR),
+                                                                                 mean(samples_hmc_misspecify$beta_U3ToEGFR),
+                                                                                 beta_GefiToEGFR = mean(samples_hmc_misspecify$beta_GefiToEGFR),
+                                                                                 mean(samples_hmc_misspecify$mu_U_PRR_NFKB),
+                                                                                 mean(samples_hmc_misspecify$sigma_U_PRR_NFKB),
+                                                                                 mean(samples_hmc_misspecify$beta0_SARS_UPRR),
+                                                                                 mean(samples_hmc_misspecify$beta_SARS_COV2ToPRR),
+                                                                                 mean(samples_hmc_misspecify$beta_UToPRR),
+                                                                                 mean(samples_hmc_misspecify$beta0_PRR_U_EGFR_TNFToNFKB),
+                                                                                 mean(samples_hmc_misspecify$beta_PRRToNFKB),
+                                                                                 mean(samples_hmc_misspecify$beta_UToNFKB),
+                                                                                 mean(samples_hmc_misspecify$beta_EGFRToNFKB),
+                                                                                 mean(samples_hmc_misspecify$beta_TNFToNFKB),
+                                                                                 beta0_NFKB_IL6STSTToIL6STAT3 = mean(samples_hmc_misspecify$beta0_NFKB_IL6STSTToIL6STAT3),
+                                                                                 beta_UToIL6STAT3 = mean(samples_hmc_misspecify$beta_UToIL6STAT3),
+                                                                                 beta_Sil6rToIL6STAT3 = mean(samples_hmc_misspecify$beta_Sil6rToIL6STAT3),
+                                                                                 beta0_NFKB_IL6STATToIL6AMP = mean(samples_hmc_misspecify$beta0_NFKB_IL6STATToIL6AMP),
+                                                                                 beta_NFKBToIL6AMP = mean(samples_hmc_misspecify$beta_NFKBToIL6AMP),
+                                                                                 beta_IL6STAT3ToIL6AMP = mean(samples_hmc_misspecify$beta_IL6STAT3ToIL6AMP),
+                                                                                 beta0_IL6AMPTocytok = mean(samples_hmc_misspecify$beta0_IL6AMPTocytok),
+                                                                                 beta_IL6AMPTocytok = mean(samples_hmc_misspecify$beta_IL6AMPTocytok),
+                                                                                 mu_Gefi = mean(samples_hmc_misspecify$mu_Gefi),
+                                                                                 sigma_Gefi = mean(samples_hmc_misspecify$sigma_Gefi),
+                                                                                 seed = seed, data_count = data_count
+    )
+    estimated_y_hmc_list_misspecify_sil6r[[data_count]][[paste0("num_data_points_",num_data_points)]] <-  mutilated_model_misspecify_sil6r(
+                                                                                 mu_U_SARS_Ang = mean(samples_hmc_misspecify$mu_U_SARS_Ang),
+                                                                                 sigma_U_SARS_Ang = mean(samples_hmc_misspecify$sigma_U_SARS_Ang),
+                                                                                 beta0_U_SARS_AngToSARS_COV2 = mean(samples_hmc_misspecify$beta0_U_SARS_AngToSARS_COV2),
+                                                                                 beta_U_SARS_AngToSARS_COV2 = mean(samples_hmc_misspecify$beta_U_SARS_AngToSARS_COV2),
+                                                                                 beta0_SARS_COV2ToACE2 = mean(samples_hmc_misspecify$beta0_SARS_COV2ToACE2),
+                                                                                 beta_SARS_COV2ToACE2 = mean(samples_hmc_misspecify$beta_SARS_COV2ToACE2),
+                                                                                 beta0_ACE2_and_U_SARS_Ang_ToAng = mean(samples_hmc_misspecify$beta0_ACE2_and_U_SARS_Ang_ToAng),
+                                                                                 beta_ACE2ToAng = mean(samples_hmc_misspecify$beta_ACE2ToAng),
+                                                                                 beta_U_SARS_AngToAng = mean(samples_hmc_misspecify$beta_U_SARS_AngToAng),
+                                                                                 beta0_AngToAGTR1 = mean(samples_hmc_misspecify$beta0_AngToAGTR1),
+                                                                                 beta_AngToAGTR1 = mean(samples_hmc_misspecify$beta_AngToAGTR1),
+                                                                                 mu_U_ADAM17_Sil6r = mean(samples_hmc_misspecify$mu_U_ADAM17_Sil6r),
+                                                                                 sigma_U_ADAM17_Sil6r = mean(samples_hmc_misspecify$sigma_U_ADAM17_Sil6r),
+                                                                                 beta0_AGTR1_UToADAM17 = mean(samples_hmc_misspecify$beta0_AGTR1_UToADAM17),
+                                                                                 beta_AGTR1ToADAM17 = mean(samples_hmc_misspecify$beta_AGTR1ToADAM17),
+                                                                                 mean(samples_hmc_misspecify$beta_U_ADAM17_Sil6rToADAM17),
+                                                                                 mean(samples_hmc_misspecify$mu_Toci),
+                                                                                 mean(samples_hmc_misspecify$sigma_Toci),
+                                                                                 mean(samples_hmc_misspecify$beta0_ADAM17_U_TociToSil6r),
+                                                                                 mean(samples_hmc_misspecify$beta_ADAM17ToSil6r),
+                                                                                 mean(samples_hmc_misspecify$beta_UToSil6r),
+                                                                                 mean(samples_hmc_misspecify$beta_TociToSil6r),
+                                                                                 mean(samples_hmc_misspecify$mu_U_EGF_EGFR),
+                                                                                 mean(samples_hmc_misspecify$sigma_U_EGF_EGFR),
+                                                                                 mean(samples_hmc_misspecify$beta0_ADAM17_UToEGF),
+                                                                                 mean(samples_hmc_misspecify$beta_ADAM17ToEGF),
+                                                                                 mean(samples_hmc_misspecify$beta_UToEGF),
+                                                                                 mean(samples_hmc_misspecify$mu_U_EGFR_TNF),
+                                                                                 mean(samples_hmc_misspecify$sigma_U_EGFR_TNF),
+                                                                                 mean(samples_hmc_misspecify$beta0_ADAM17_UToTNF),
+                                                                                 mean(samples_hmc_misspecify$beta_ADAM17ToTNF),
+                                                                                 mean(samples_hmc_misspecify$beta_UToTNF),
+                                                                                 mean(samples_hmc_misspecify$mu_U_EGFR_IL6STAT3),
+                                                                                 mean(samples_hmc_misspecify$sigma_U_EGFR_IL6STAT3),
+                                                                                 mean(samples_hmc_misspecify$beta0_EGF_3U),
+                                                                                 mean(samples_hmc_misspecify$beta_EGFToEGFR),
+                                                                                 mean(samples_hmc_misspecify$beta_U1ToEGFR),
+                                                                                 mean(samples_hmc_misspecify$beta_U2ToEGFR),
+                                                                                 mean(samples_hmc_misspecify$beta_U3ToEGFR),
+                                                                                 beta_GefiToEGFR = mean(samples_hmc_misspecify$beta_GefiToEGFR),
+                                                                                 mean(samples_hmc_misspecify$mu_U_PRR_NFKB),
+                                                                                 mean(samples_hmc_misspecify$sigma_U_PRR_NFKB),
+                                                                                 mean(samples_hmc_misspecify$beta0_SARS_UPRR),
+                                                                                 mean(samples_hmc_misspecify$beta_SARS_COV2ToPRR),
+                                                                                 mean(samples_hmc_misspecify$beta_UToPRR),
+                                                                                 mean(samples_hmc_misspecify$beta0_PRR_U_EGFR_TNFToNFKB),
+                                                                                 mean(samples_hmc_misspecify$beta_PRRToNFKB),
+                                                                                 mean(samples_hmc_misspecify$beta_UToNFKB),
+                                                                                 mean(samples_hmc_misspecify$beta_EGFRToNFKB),
+                                                                                 mean(samples_hmc_misspecify$beta_TNFToNFKB),
+                                                                                 mean(samples_hmc_misspecify$beta0_NFKB_IL6STSTToIL6STAT3),
+                                                                                 mean(samples_hmc_misspecify$beta_UToIL6STAT3),
+                                                                                 mean(samples_hmc_misspecify$beta_Sil6rToIL6STAT3),
+                                                                                 mean(samples_hmc_misspecify$beta0_NFKB_IL6STATToIL6AMP),
+                                                                                 mean(samples_hmc_misspecify$beta_NFKBToIL6AMP),
+                                                                                 mean(samples_hmc_misspecify$beta_IL6STAT3ToIL6AMP),
+                                                                                 mean(samples_hmc_misspecify$beta0_IL6AMPTocytok),
+                                                                                 beta_IL6AMPTocytok = mean(samples_hmc_misspecify$beta_IL6AMPTocytok),
+                                                                                 mu_Gefi = mean(samples_hmc_misspecify$mu_Gefi),
+                                                                                 sigma_Gefi = mean(samples_hmc_misspecify$sigma_Gefi),
+                                                                                 seed = seed, data_count = data_count
+    )
+    means_hmc_misspecify_egfr <- c(means_hmc_misspecify_egfr,abs(mean(estimated_y_hmc_list_misspecify_egfr[[data_count]][[paste0("num_data_points_",num_data_points)]]) - mean(intv_data_list_egfr[[data_count]]$cytok)))
+    means_hmc_misspecify_sil6r <- c(means_hmc_misspecify_sil6r,abs(mean(estimated_y_hmc_list_misspecify_sil6r[[data_count]][[paste0("num_data_points_",num_data_points)]]) - mean(intv_data_list_sil6r[[data_count]]$cytok)))
+    print("means_hmc_misspecify_egfr")
+    print(means_hmc_misspecify_egfr)
+    print("means_hmc_misspecify_sil6r")
+    print(means_hmc_misspecify_sil6r)
+    
+  }
+  means_hmc_list_misspecify_egfr[[paste0("num_data_points_",num_data_points)]] <- means_hmc_misspecify_egfr
+  means_hmc_list_misspecify_sil6r[[paste0("num_data_points_",num_data_points)]] <- means_hmc_misspecify_sil6r
+  print("means_hmc_list_misspecify_egfr is:")
+  print(means_hmc_list_misspecify_egfr)
+  print("means_hmc_list_misspecify_sil6r is:")
+  print(means_hmc_list_misspecify_sil6r)
+  means_hmc_misspecify_egfr <- c()
+  means_hmc_misspecify_sil6r <- c()
+}
+saveRDS(means_hmc_list_misspecify_egfr,file = "data/Case3_Covid/output/means_hmc_list_misspecify_Case3_egfr.RData")
+saveRDS(means_hmc_list_misspecify_sil6r,file = "data/Case3_Covid/output/means_hmc_list_misspecify_Case3_sil6r.RData")
+```
+
+
+
+# Plug in estimator
+
+In this section we want to compare our approach with the plug-in estimator. We have to construct a parametric model for the conditional distributions that appear in the formula of an identifying functional of a causal effect. For case study 4, the do-calculus based formula is as follows:
+
+$$
+P(cytok | do(sil6r = 20)) = \sum_{ADAM17, AGTR1} P(cytok∣sil6r,ADAM17,AGTR1) P(ADAM17|AGTR1)P(AGTR1) \\
+P(cytok | do(EGFR = 20)) = \sum_{AGTR1,IL6STAT3,TNFα} P(cytok∣EGFR,AGTR1,IL6STAT3,TNFα)P(AGTR1,IL6STAT3,TNFα) \\
+= \sum_{AGTR1,IL6STAT3,TNFα} P(cytok∣EGFR,AGTR1,IL6STAT3,TNFα)P(IL6STAT3 | AGTR1 ,TNFα) P(TNFα |AGTR1) P(AGTR1)
+$$
+
+The Stan model is as follows:
+
+```{r}
+model_str_covid_plug_in_sil6r <- "
+    data {
+        int D;
+        vector[D] AGTR1;
+        vector[D] ADAM17;
+        vector[D] Sil6r;
+        int<lower=0,upper=1> cytok[D];
+    }
+    parameters {
+       real<lower=0> mu_AGTR1; 
+       real<lower=0> sigma_AGTR1;
+       real beta0_ADAM17;
+       real<lower=0> beta_AGTR1ToADAM17;
+       real beta0_cytok;
+       real<lower=0> beta_Sil6rTocytok;
+       real<lower=0> beta_ADAM17Tocytok;
+       real<lower=0> beta_AGTR1Tocytok;
+       
+    }
+    transformed parameters {
+      vector[D] ADAM17_loc;
+      for (i in 1:D){
+        ADAM17_loc[i] = 100 / (1 + exp(-beta0_ADAM17 - AGTR1[i] * beta_AGTR1ToADAM17));
+      }
+    }
+    model {
+        mu_AGTR1 ~ normal(79, 1); 
+        sigma_AGTR1 ~ normal(11, 1); 
+        beta0_ADAM17 ~ normal(0,10);
+        beta_AGTR1ToADAM17 ~ normal(0,10);
+        beta0_cytok ~ normal(0,10);
+        beta_Sil6rTocytok ~ normal(0,10);
+        beta_ADAM17Tocytok ~ normal(0,10);
+        beta_AGTR1Tocytok ~ normal(0,10);
+        //
+        AGTR1 ~ normal(mu_AGTR1,sigma_AGTR1);
+        ADAM17 ~ normal(ADAM17_loc,8.7);
+        for(i in 1:D) {
+          cytok[i] ~ bernoulli_logit(beta0_cytok + Sil6r[i] * beta_Sil6rTocytok + ADAM17[i] * beta_ADAM17Tocytok + AGTR1[i] * beta_AGTR1Tocytok);
+        }
+    }
+"
+```
+
+```{r, message=FALSE, warning=FALSE}
+mod_plug_in_sil6r <- rstan::stan_model(model_code = model_str_covid_plug_in_sil6r)
+```
+
+```{r}
+model_str_covid_plug_in_egfr <- "
+    data {
+        int D;
+        vector[D] AGTR1;
+        vector[D] TNF;
+        vector[D] IL6STAT3;
+        vector[D] EGFR;
+        int<lower=0,upper=1> cytok[D];
+    }
+    parameters {
+       real<lower=0> mu_AGTR1; 
+       real<lower=0> sigma_AGTR1;
+       real beta0_TNF;
+       real<lower=0> beta_AGTR1ToTNF;
+       real beta0_IL6STAT3;
+       real<lower=0> beta_TNFToIL6STAT3;
+       real<lower=0> beta_AGTR1ToIL6STAT3;
+       
+       real beta0_cytok;
+       real<lower=0> beta_TNFTocytok;
+       real<lower=0> beta_IL6STAT3Tocytok;
+       real<lower=0> beta_AGTR1Tocytok;
+       real<lower=0> beta_EGFRTocytok;
+       
+    }
+    transformed parameters {
+      vector[D] TNF_loc;
+      vector[D] IL6STAT3_loc;
+      for (i in 1:D){
+        TNF_loc[i] = 100 / (1 + exp(-beta0_TNF - AGTR1[i] * beta_AGTR1ToTNF));
+        IL6STAT3_loc[i] = 100 / (1 + exp(-beta0_IL6STAT3 - AGTR1[i] * beta_AGTR1ToIL6STAT3 - TNF[i] * beta_TNFToIL6STAT3));
+      }
+    }
+    model {
+        mu_AGTR1 ~ normal(79, 1); 
+        sigma_AGTR1 ~ normal(11, 1); 
+        beta0_TNF ~ normal(0,10);
+        beta_AGTR1ToTNF ~ normal(0,10);
+        beta0_IL6STAT3 ~ normal(0,10);
+        beta_TNFToIL6STAT3 ~ normal(0,10);
+        beta_AGTR1ToIL6STAT3 ~ normal(0,10);
+        beta0_cytok ~ normal(0,10);
+        beta_TNFTocytok ~ normal(0,10);
+        beta_IL6STAT3Tocytok ~ normal(0,10);
+        beta_AGTR1Tocytok ~ normal(0,10);
+        beta_EGFRTocytok ~ normal(0,10);
+        //
+        AGTR1 ~ normal(mu_AGTR1,sigma_AGTR1);
+        TNF ~ normal(TNF_loc,11);
+        IL6STAT3 ~ normal(IL6STAT3_loc,21);
+        for(i in 1:D) {
+          cytok[i] ~ bernoulli_logit(beta0_cytok + IL6STAT3[i] * beta_IL6STAT3Tocytok + TNF[i] * beta_TNFTocytok + AGTR1[i] * beta_AGTR1Tocytok + EGFR[i] * beta_EGFRTocytok);
+        }
+    }
+"
+```
+
+```{r, message=FALSE, warning=FALSE}
+mod_plug_in_egfr <- rstan::stan_model(model_code = model_str_covid_plug_in_egfr)
+```
+
+## Mutilated model
+
+```{r}
+num_samples = 1000
+mutilated_model_plug_in_sil6r <- function(mu_AGTR1, sigma_AGTR1,
+                                    beta0_ADAM17, beta_AGTR1ToADAM17,
+                                    beta0_cytok, beta_Sil6rTocytok, beta_ADAM17Tocytok, beta_AGTR1Tocytok, seed, data_count
+) {
+    set.seed(seed)
+    AGTR1_1 = rnorm(num_samples, mu_AGTR1, sigma_AGTR1)
+    ADAM17_1 = rnorm(num_samples, 100 / (1 + exp(-beta0_ADAM17 - AGTR1_1 * beta_AGTR1ToADAM17)), sqrt(var(ADAM17)))
+    Sil6r_1 = rep(20, num_samples)
+    p_cytok = 1 / (1 + exp(-beta0_cytok - Sil6r_1 * beta_Sil6rTocytok - ADAM17_1 * beta_ADAM17Tocytok - AGTR1_1 * beta_AGTR1Tocytok))
+    cytok_1 = rbinom(num_samples,size=1, prob=p_cytok)
+    return(cytok_1)
+}
+```
+
+```{r}
+num_samples = 1000
+mutilated_model_plug_in_egfr <- function(mu_AGTR1, sigma_AGTR1,
+                                         beta0_TNF, beta_AGTR1ToTNF,
+                                         beta0_IL6STAT3, beta_TNFToIL6STAT3, beta_AGTR1ToIL6STAT3,
+                                         beta0_cytok, beta_TNFTocytok, beta_IL6STAT3Tocytok, beta_AGTR1Tocytok, beta_EGFRTocytok,
+                                         seed, data_count
+) {
+    set.seed(seed)
+    AGTR1_1 = rnorm(num_samples, mu_AGTR1, sigma_AGTR1)
+    TNF_1 = rnorm(num_samples, 100 / (1 + exp(-beta0_TNF - AGTR1_1 * beta_AGTR1ToTNF)), sqrt(var(obs_data_list[[data_count]]$TNF)))
+    EGFR_1 = rep(20, num_samples)
+    IL6STAT3_1 = rnorm(num_samples, 100 / (1 + exp(-beta0_IL6STAT3 - AGTR1_1 * beta_AGTR1ToIL6STAT3 - TNF_1 * beta_TNFToIL6STAT3)), sqrt(var(obs_data_list[[data_count]]$IL6STAT3)))
+    p_cytok = 1 / (1 + exp(-beta0_cytok - TNF_1 * beta_TNFTocytok - IL6STAT3_1 * beta_IL6STAT3Tocytok - AGTR1_1 * beta_AGTR1Tocytok - EGFR_1 * beta_EGFRTocytok))
+    cytok_1 = rbinom(num_samples,size=1, prob=p_cytok)
+    return(cytok_1)
+}
+```
+
+
+```{r}
+seed = 5
+estimated_y_hmc_list_plug_in <- rep(list(list()), K)
+hmc_fit_list_plug_in <- rep(list(list()), K)
+means_hmc_plug_in <- c()
+means_hmc_list_plug_in <- list()
+
+for (num_data_points in ndp) {
+  print("num_data_points is:")
+  print(num_data_points)
+  for (data_count in 1:K) {
+    print("data_count is:")
+    print(data_count)
+    data_list <- list(D=num_data_points
+                  ,AGTR1 = obs_data_list[[data_count]]$AGTR1[1:num_data_points]
+                  ,ADAM17 = obs_data_list[[data_count]]$ADAM17[1:num_data_points]
+                  ,Sil6r = obs_data_list[[data_count]]$Sil6r[1:num_data_points]
+                  ,cytok = obs_data_list[[data_count]]$cytok[1:num_data_points]
+                  )
+ 
+    hmc_fit_list_plug_in[[data_count]][[paste0("num_data_points_",num_data_points)]] <- rstan::sampling(mod_plug_in_sil6r, data=data_list, chains = 2, iter = 3000, warmup = 1500, seed = 1, control = list(max_treedepth = 15))
+    
+    samples_hmc_plug_in <- rstan::extract(hmc_fit_list_plug_in[[data_count]][[paste0("num_data_points_",num_data_points)]], c("mu_AGTR1", "sigma_AGTR1",
+                                                                                "beta0_ADAM17", "beta_AGTR1ToADAM17",
+                                                                                "beta0_cytok", "beta_Sil6rTocytok", "beta_ADAM17Tocytok", "beta_AGTR1Tocytok"))
+    
+    estimated_y_hmc_list_plug_in[[data_count]][[paste0("num_data_points_",num_data_points)]] <-  mutilated_model_plug_in_sil6r(mu_AGTR1 = mean(samples_hmc_plug_in$mu_AGTR1),
+                                                                           sigma_AGTR1 = mean(samples_hmc_plug_in$sigma_AGTR1),
+                                                                           beta0_ADAM17 = mean(samples_hmc_plug_in$beta0_ADAM17),
+                                                                           beta_AGTR1ToADAM17 = mean(samples_hmc_plug_in$beta_AGTR1ToADAM17),
+                                                                           beta0_cytok = mean(samples_hmc_plug_in$beta0_cytok),
+                                                                           beta_Sil6rTocytok = mean(samples_hmc_plug_in$beta_Sil6rTocytok),
+                                                                           beta_ADAM17Tocytok = mean(samples_hmc_plug_in$beta_ADAM17Tocytok),
+                                                                           beta_AGTR1Tocytok = mean(samples_hmc_plug_in$beta_AGTR1Tocytok),
+                                                                           seed = seed, data_count = data_count
+    )
+    means_hmc_plug_in <- c(means_hmc_plug_in,abs(mean(estimated_y_hmc_list_plug_in[[data_count]][[paste0("num_data_points_",num_data_points)]]) - mean(intv_data_list_sil6r[[data_count]]$cytok)))
+    
+  }
+  means_hmc_list_plug_in[[paste0("num_data_points_",num_data_points)]] <- means_hmc_plug_in
+  means_hmc_plug_in <- c()
+}
+saveRDS(hmc_fit_list_plug_in, file = "data/Case3_Covid/output/hmc_fit_list_plug_in_Case3_sil6r.RData")
+saveRDS(means_hmc_list_plug_in, file = "data/Case3_Covid/output/means_hmc_list_plug_in_Case3_sil6r.RData")
+```
+
+```{r}
+seed = 5
+estimated_y_hmc_list_plug_in <- rep(list(list()), K)
+hmc_fit_list_plug_in <- rep(list(list()), K)
+means_hmc_plug_in <- c()
+means_hmc_list_plug_in <- list()
+
+for (num_data_points in ndp) {
+  print("num_data_points is:")
+  print(num_data_points)
+  for (data_count in 1:K) {
+    print("data_count is:")
+    print(data_count)
+    data_list <- list(D=num_data_points
+                  ,AGTR1 = obs_data_list[[data_count]]$AGTR1[1:num_data_points]
+                  ,TNF = obs_data_list[[data_count]]$TNF[1:num_data_points]
+                  ,IL6STAT3 = obs_data_list[[data_count]]$IL6STAT3[1:num_data_points]
+                  ,EGFR = obs_data_list[[data_count]]$EGFR[1:num_data_points]
+                  ,cytok = obs_data_list[[data_count]]$cytok[1:num_data_points]
+                  )
+    hmc_fit_list_plug_in[[data_count]][[paste0("num_data_points_",num_data_points)]] <- rstan::sampling(mod_plug_in_egfr, data=data_list, chains = 2, iter = 3000, warmup = 1500, seed = 1, control = list(max_treedepth = 15))
+    
+    samples_hmc_plug_in <- rstan::extract(hmc_fit_list_plug_in[[data_count]][[paste0("num_data_points_",num_data_points)]], c("mu_AGTR1", "sigma_AGTR1",
+                                                                                "beta0_TNF", "beta_AGTR1ToTNF",
+                                                                                "beta0_IL6STAT3", "beta_TNFToIL6STAT3", "beta_AGTR1ToIL6STAT3",
+                                                                                "beta0_cytok", "beta_TNFTocytok", "beta_IL6STAT3Tocytok", "beta_AGTR1Tocytok", "beta_EGFRTocytok"))
+  
+    estimated_y_hmc_list_plug_in[[data_count]][[paste0("num_data_points_",num_data_points)]] <-  mutilated_model_plug_in_egfr(mu_AGTR1 = mean(samples_hmc_plug_in$mu_AGTR1),
+                                                                           sigma_AGTR1 = mean(samples_hmc_plug_in$sigma_AGTR1),
+                                                                           beta0_TNF = mean(samples_hmc_plug_in$beta0_TNF),
+                                                                           beta_AGTR1ToTNF = mean(samples_hmc_plug_in$beta_AGTR1ToTNF),
+                                                                           beta0_IL6STAT3 = mean(samples_hmc_plug_in$beta0_IL6STAT3),
+                                                                           beta_TNFToIL6STAT3 = mean(samples_hmc_plug_in$beta_TNFToIL6STAT3),
+                                                                           beta_AGTR1ToIL6STAT3 = mean(samples_hmc_plug_in$beta_AGTR1ToIL6STAT3),
+                                                                           beta0_cytok = mean(samples_hmc_plug_in$beta0_cytok),
+                                                                           beta_TNFTocytok = mean(samples_hmc_plug_in$beta_TNFTocytok),
+                                                                           beta_IL6STAT3Tocytok = mean(samples_hmc_plug_in$beta_IL6STAT3Tocytok),
+                                                                           beta_AGTR1Tocytok = mean(samples_hmc_plug_in$beta_AGTR1Tocytok),
+                                                                           beta_EGFRTocytok = mean(samples_hmc_plug_in$beta_EGFRTocytok),
+                                                                           seed = seed, data_count = data_count
+    )
+    means_hmc_plug_in <- c(means_hmc_plug_in,abs(mean(estimated_y_hmc_list_plug_in[[data_count]][[paste0("num_data_points_",num_data_points)]]) - mean(intv_data_list_egfr[[data_count]]$cytok)))
+    
+  }
+  means_hmc_list_plug_in[[paste0("num_data_points_",num_data_points)]] <- means_hmc_plug_in
+  means_hmc_plug_in <- c()
+}
+saveRDS(hmc_fit_list_plug_in, file = "data/Case3_Covid/output/hmc_fit_list_plug_in_Case3_egfr.RData")
+saveRDS(means_hmc_list_plug_in, file = "data/Case3_Covid/output/means_hmc_list_plug_in_Case3_egfr.RData")
+```
