@@ -1,6 +1,6 @@
 ---
 title: "Case study 3: Covid case study"
-author: "Sara Taheri"
+author: ""
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
 vignette: >

@@ -1,6 +1,6 @@
 ---
 title: "Case Study 1 : The multicause model"
-author: "Sara Taheri"
+author: ""
 date: "1/20/2021"
 output: html_document
 ---
