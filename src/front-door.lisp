@@ -184,3 +184,19 @@
 										(get-slot-value tf 'accession-1)
 										(get-slot-value gene 'accession-1)
 										"-")))))))
+
+
+;; get downstream regulators and ancestors of effects
+(defun get-downstream-regulators-and-ancestors-of-effects (filename regulator)
+  (tofile filename
+	  (format t "Cause	Effect~%")
+	  (loop for hop-1 in (genes-regulated-by-gene regulator)
+		do (format t "~A	~A~%" (get-frame-name regulator) (get-frame-name hop-1))
+		   (loop for ancestors-1 in (genes-regulating-gene hop-1)
+			 unless (fequal regulator ancestors-1)
+			   do (format t "~A	~A~%" (get-frame-name ancestors-1) (get-frame-name hop-1)))
+		   (loop for hop-2 in (genes-regulated-by-gene hop-1)
+			 do (format t "~A	~A~%" (get-frame-name hop-1) (get-frame-name hop-2))
+			    (loop for ancestors-2 in (genes-regulating-gene hop-2)
+				  unless (fequal hop-1 ancestors-2)
+				    do (format t "~A	~A~%"  (get-frame-name ancestors-2) (get-frame-name hop-2)))))))
