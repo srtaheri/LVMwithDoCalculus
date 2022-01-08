@@ -209,13 +209,13 @@
 		do (loop for hop-2 in (genes-regulated-by-gene hop-1)
 			 do (loop for ancestors-1 in (genes-regulating-gene hop-2)
 				  do (format t "~A	~A~%"
-					     (get-slot-value 'accession-1  ancestors-1)
-					     (get-slot-value 'accession-1  hop-2))
+					     (get-slot-value  ancestors-1 'accession-1)
+					     (get-slot-value hop-1 'accession-1 ))
 				     (loop for ancestors-2 in (genes-regulating-gene ancestors-1)
 					   do (format t "~A	~A~%"
-						      (get-slot-value 'accession-1  ancestors-2)
-						      (get-slot-value 'accession-1  ancestors-1))
+						      (get-slot-value ancestors-2 'accession-1)
+						      (get-slot-value ancestors-1  'accession-1 ))
 					      (loop for ancestors-3 in (genes-regulating-gene ancestors-2)
 						    do (format t "~A	~A~%"
-							       (get-slot-value 'accession-1  ancestors-3)
-							       (get-slot-value 'accession-1  ancestors-2)))))))))
+							       (get-slot-value ancestors-3 'accession-1)
+							       (get-slot-value ancestors-2 'accession-1)))))))))
