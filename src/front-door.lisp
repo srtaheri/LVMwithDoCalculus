@@ -200,3 +200,22 @@
 			    (loop for ancestors-2 in (genes-regulating-gene hop-2)
 				  unless (fequal hop-1 ancestors-2)
 				    do (format t "~A	~A~%"  (get-frame-name ancestors-2) (get-frame-name hop-2)))))))
+
+
+(defun get-3hop-ancestors-of-2hop-descendants (filename regulator)
+  (tofile filename
+	  (format t "Cause	Effect~%")
+	  (loop for hop-1 in (genes-regulated-by-gene regulator)
+		do (loop for hop-2 in (genes-regulated-by-gene hop-1)
+			 do (loop for ancestors-1 in (genes-regulating-gene hop-2)
+				  do (format t "~A	~A~%"
+					     (get-frame-name ancestors-1)
+					     (get-frame-name hop-2))
+				     (loop for ancestors-2 in (genes-regulating-gene ancestors-1)
+					   do (format t "~A	~A~%"
+						      (get-frame-name ancestors-2)
+						      (get-frame-name ancestors-1))
+					      (loop for ancestors-3 in (genes-regulating-gene ancestors-2)
+						    do (format t "~A	~A~%"
+							       (get-frame-name ancestors-3)
+							       (get-frame-name ancestors-2)))))))))
