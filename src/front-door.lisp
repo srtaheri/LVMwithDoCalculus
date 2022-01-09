@@ -264,17 +264,22 @@
 			   for ancestors-3 = (genes-regulating-gene ancestor-2)
 			   do (print-napkin X ancestor-1 ancestor-2 ancestors-3 descendants-1))))))
 
-
+(defun find-V (X R W U Y)
+  (loop for V in (set-difference
+		  (intersection (genes-regulating-gene W)
+				(genes-regulating-gene Y)
+				:test #'fequal)
+		  (list X R W U Y)
+		  :test #'fequal)
+	for children = (genes-regulated-by-gene V)
+	unless (intersection children (list X R U) :test #'fequal)
+	  collect V)
+  )
 (defun print-napkin (X ancestor-1 ancestor-2 ancestors-3 descendants-1)
   (loop for ancestor-3 in ancestors-3
 	for children = (genes-regulated-by-gene ancestor-3)
 	do (loop for descendant-1 in descendants-1
-		 for V = (set-difference
-			  (intersection (genes-regulating-gene ancestor-2)
-					(genes-regulating-gene descendant-1)
-					:test #'fequal)
-			  (list X ancestor-1 ancestor-2 ancestor-3 descendant-1)
-			  :test #'fequal)
+		 for V = (find-V X ancestor-1 ancestor-2 ancestor-3 descendant-1)
 		 when (and (member-p X children :test #'fequal)
 			   (member-p ancestor-2 children :test #'fequal)
 			   (not (member-p ancestor-1 children :test #'fequal))
