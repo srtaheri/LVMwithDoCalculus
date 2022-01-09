@@ -210,7 +210,7 @@
 			 do (loop for ancestors-1 in (genes-regulating-gene hop-2)
 				  do (format t "~A	~A~%"
 					     (get-slot-value  ancestors-1 'accession-1)
-					     (get-slot-value hop-1 'accession-1 ))
+					     (get-slot-value hop-2 'accession-1 ))
 				     (loop for ancestors-2 in (genes-regulating-gene ancestors-1)
 					   do (format t "~A	~A~%"
 						      (get-slot-value ancestors-2 'accession-1)
@@ -219,3 +219,30 @@
 						    do (format t "~A	~A~%"
 							       (get-slot-value ancestors-3 'accession-1)
 							       (get-slot-value ancestors-2 'accession-1)))))))))
+
+(defun find-shielded-regulators (x y m)
+  (set-difference
+   (intersection
+    (genes-regulating-gene x)
+    (genes-regulating-gene y)
+    :test #'fequal)
+   (genes-regulating-gene m)
+   :test #'fequal))
+
+
+(defun find-front-door-of-ko (filename cause)
+  ;; TODO:  start with regulator and search for front door.
+  (tofile filename
+	  (format t "Cause	Effect	Regulators	Mediators~%")
+	  (loop for mediator in (genes-regulated-by-gene cause)
+		unless (fequal cause mediator)
+		do (loop for effect in (genes-regulated-by-gene mediator)
+			 for regulators = (set-difference (find-shielded-regulators cause effect mediator) (list cause effect mediator) :test #'fequal)
+			 unless (or (fequal cause effect)
+				    (fequal mediator effect)
+				    (member-p mediator regulators :test #'fequal))
+			   do  (format t "~A	~A	~{~A~^ // ~}	~A~%"
+				       (get-slot-value cause 'accession-1)
+				       (get-slot-value effect 'accession-1)
+				       (mapcar #'(lambda (x) (get-slot-value x 'accession-1)) regulators)
+				       (get-slot-value mediator 'accession-1))))))
