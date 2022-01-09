@@ -82,6 +82,7 @@
   :test #'fequal))
 
 (defun find-napkin-problem (filename)
+  ;; X <- U -> W -> R -> X -> Y <- V -> W
   (tofile filename
 	  (format t "R	U	V	W	X	Y~%")
 	  (loop for W in (gcai '|Genes|)
@@ -222,12 +223,16 @@
 
 (defun find-shielded-regulators (x y m)
   (set-difference
-   (intersection
-    (genes-regulating-gene x)
-    (genes-regulating-gene y)
+   (set-difference
+    (intersection
+     (genes-regulating-gene x)
+     (genes-regulating-gene y)
+     :test #'fequal)
+    (genes-regulating-gene m)
     :test #'fequal)
-   (genes-regulating-gene m)
-   :test #'fequal))
+   (list x y m)
+   :test #'fequal)
+   )
 
 
 (defun find-front-door-of-ko (filename cause)
@@ -237,12 +242,49 @@
 	  (loop for mediator in (genes-regulated-by-gene cause)
 		unless (fequal cause mediator)
 		do (loop for effect in (genes-regulated-by-gene mediator)
-			 for regulators = (set-difference (find-shielded-regulators cause effect mediator) (list cause effect mediator) :test #'fequal)
+			 for regulators = (find-shielded-regulators cause effect mediator)
 			 unless (or (fequal cause effect)
-				    (fequal mediator effect)
-				    (member-p mediator regulators :test #'fequal))
+				    (fequal mediator effect))
 			   do  (format t "~A	~A	~{~A~^ // ~}	~A~%"
 				       (get-slot-value cause 'accession-1)
 				       (get-slot-value effect 'accession-1)
 				       (mapcar #'(lambda (x) (get-slot-value x 'accession-1)) regulators)
 				       (get-slot-value mediator 'accession-1))))))
+
+
+(defun find-napkin-problem-of-ko (filename X)
+  ;; X <- U -> W -> R -> X -> Y <- V -> W
+  (tofile filename
+	  (format t "R	U	V	W	X	Y~%")
+	  (let ((ancestors-1 (genes-regulating-gene X))
+		(descendants-1 (genes-regulated-by-gene X)))
+	    (loop for ancestor-1 in ancestors-1
+		  for ancestors-2 = (genes-regulating-gene ancestor-1)
+		  do (loop for ancestor-2 in ancestors-2
+			   for ancestors-3 = (genes-regulating-gene ancestor-2)
+			   do (print-napkin X ancestor-1 ancestor-2 ancestors-3 descendants-1))))))
+
+
+(defun print-napkin (X ancestor-1 ancestor-2 ancestors-3 descendants-1)
+  (loop for ancestor-3 in ancestors-3
+	for children = (genes-regulated-by-gene ancestor-3)
+	do (loop for descendant-1 in descendants-1
+		 for V = (set-difference
+			  (intersection (genes-regulating-gene ancestor-2)
+					(genes-regulating-gene descendant-1)
+					:test #'fequal)
+			  (list X ancestor-1 ancestor-2 ancestor-3 descendant-1)
+			  :test #'fequal)
+		 when (and (member-p X children :test #'fequal)
+			   (member-p ancestor-2 children :test #'fequal)
+			   (not (member-p ancestor-1 children :test #'fequal))
+			   (not (member-p descendant-1 children :test #'fequal))
+			   V
+			   )
+		   do (format t "~A	~A	~{~A~^ // ~}	~A	~A	~A~%"
+			      (get-slot-value ancestor-1 'accession-1)
+			      (get-slot-value ancestor-3 'accession-1)
+			      (mapcar #'(lambda (x) (get-slot-value x 'accession-1)) V)
+			      (get-slot-value ancestor-2 'accession-1)
+			      (get-slot-value X 'accession-1)
+			      (get-slot-value descendant-1 'accession-1)))))
