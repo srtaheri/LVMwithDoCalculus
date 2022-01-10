@@ -272,24 +272,33 @@
 		  (list X R W U Y)
 		  :test #'fequal)
 	for children = (genes-regulated-by-gene V)
-	unless (intersection children (list X R U) :test #'fequal)
+	for parents = (genes-regulating-gene V)
+	unless (or (intersection children (list X R U) :test #'fequal)
+		   (intersection parents (list X R U) :test #'fequal))
 	  collect V)
   )
+
+(defun has-only-unique-elements-p (l)
+  (or (null l)
+      (and (not (member (car l) (cdr l)))
+	   (has-only-unique-elements-p (cdr l)))))
+
+
 (defun print-napkin (X ancestor-1 ancestor-2 ancestors-3 descendants-1)
   (loop for ancestor-3 in ancestors-3
 	for children = (genes-regulated-by-gene ancestor-3)
+	for parents = (genes-regulating-gene ancestor-3)
 	do (loop for descendant-1 in descendants-1
 		 for V = (find-V X ancestor-1 ancestor-2 ancestor-3 descendant-1)
-		 when (and (member-p X children :test #'fequal)
-			   (member-p ancestor-2 children :test #'fequal)
-			   (not (member-p ancestor-1 children :test #'fequal))
-			   (not (member-p descendant-1 children :test #'fequal))
-			   V
-			   )
+		 unless (or (intersection parents (list ancestor-1 descendant-1) :test #'fequal)
+			    (intersection children (list ancestor-1 descendant-1) :test #'fequal)
+			    (find-duplicates (list X ancestor-1 ancestor-2 ancestor-3 descendant-1))
+			    (not V)
+			    )
 		   do (format t "~A	~A	~{~A~^ // ~}	~A	~A	~A~%"
 			      (get-slot-value ancestor-1 'accession-1)
 			      (get-slot-value ancestor-3 'accession-1)
-			      (mapcar #'(lambda (x) (get-slot-value x 'accession-1)) V)
+			      (mapcar #'(lambda (vv) (get-slot-value vv 'accession-1)) V)
 			      (get-slot-value ancestor-2 'accession-1)
 			      (get-slot-value X 'accession-1)
 			      (get-slot-value descendant-1 'accession-1)))))
