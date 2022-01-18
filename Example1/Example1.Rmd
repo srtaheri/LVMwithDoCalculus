@@ -25,7 +25,9 @@ rstan_options(auto_write = TRUE)
 ```
 
 ```{r}
-seed = 250
+# can identify theta_XY : seed 120, hmc seed = 1,10
+# can identify theta_XY : seed 75, hmc seed = 1 (can learn all correctly), 2, 10
+seed = 250  
 set.seed(seed)
 L = 1
 D = 100 #50, 500
@@ -212,7 +214,7 @@ if (Sys.getenv("RSTUDIO") == "1" && !nzchar(Sys.getenv("RSTUDIO_TERM")) &&
     Sys.info()["sysname"] == "Darwin") {
   parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
 }
-hmc_fit <- rstan::sampling(mod, data=data_list, chains = 2, iter = 3000, warmup = 1500, seed =10,control = list(max_treedepth = 15)) 
+hmc_fit <- rstan::sampling(mod, data=data_list, chains = 2, iter = 3000, warmup = 1500, seed =10,control = list(max_treedepth = 15)) #seed 10
 ```
 
 
@@ -246,11 +248,129 @@ theta_UX
 samples_theta_XY <- colMeans(hmc_fit_params$theta_XY)
 samples_theta_XY
 theta_XY
-samples_eta <- colMeans(hmc_fit_params$theta_UY)
-samples_eta
+samples_theta_UY <- colMeans(hmc_fit_params$theta_UY)
+samples_theta_UY
 theta_UY
 ```
 
 ```{r}
 saveRDS(hmc_fit, "hmc_fit_D100_N1_L1_parseed250_hmcseed10.RData")
 ```
+
+
+# Consistency plots
+
+We want to see if we can show that when there is no hidden confounder, by increasing the number of data points our causal inference value will get closer to the actual causal inference value. In presence of hidden confounder, increasing data points does not help to get a better estimate.
+
+## True distribution of $P(Y | do(X = x))$
+
+Let's calculate the true mean of $P(Y | do(X = x))$ distribution:
+
+$$P(Y | do(X = x)) \stackrel{{d}}{\sim} N(x \theta_{XY} + \mu \theta_{UY}, \theta_{UY}^T \Sigma_{uu} \theta_{UY} + 1)   $$
+
+If $\mu = 0$, then $P(Y | do(X = x))$ is fully parametrized by $\theta_XY$ but if $\mu \neq 0$, then $P(Y | do(X = x))$ is parametrized by $\theta_{XY}$, $\mu$ and $\theta_{UY}$.
+
+```{r}
+set.seed(seed)
+# generate x
+x = mvtnorm::rmvnorm(n = 1, mean = mu_U %*% theta_UX, sigma = Sigma_xx)
+```
+
+```{r}
+#generate samples for y from P(Y | do(X = x))
+mean_y_given_do_x = x %*% theta_XY + mu_U %*% theta_UY
+var_y_given_do_x = t(theta_UY) %*% Sigma_uu %*% theta_UY + 1
+std_y_given_do_x = sqrt(var_y_given_do_x[1,1])
+mean_y_given_do_x
+```
+
+```{r}
+std_y_given_do_x
+```
+
+### Plot distribution of $P(Y | do(X = x))$
+
+```{r}
+x_true_density <- seq(-50,20, length = 1000)
+y_true_density <- dnorm(x_true_density, mean = mean_y_given_do_x, sd = std_y_given_do_x)
+plot(x_true_density, y_true_density, lwd = 1, main = "True distribution of P(Y|do(X = x))", xlab = "",type='l', ylab = "P(Y|do(X=x))")
+```
+
+```{r}
+# one dimensional
+mutilated_model <- function(mu, theta_XY, theta_UY, x, num_samples = 1000) {
+  u = mvtnorm::rmvnorm(n = num_samples, mean = mu , sigma = diag(L)) 
+  x = x
+  y = matrix(x, nrow = num_samples, ncol = N) %*% theta_XY + matrix(u, nrow = num_samples, ncol = L) %*% theta_UY + rnorm(n = 1, mean = 0, sd = 1)
+  return(y)
+}
+```
+
+
+```{r}
+hmc_fit_D10_N1_L1 <- readRDS("/Users/sarataheri/GitHub/LVMwithDoCalculus/Example1/hmc_fit_D10_N1_L1_parseed250_hmcseed10.RData")
+hmc_fit_D50_N1_L1 <- readRDS("/Users/sarataheri/GitHub/LVMwithDoCalculus/Example1/hmc_fit_D50_N1_L1_parseed250_hmcseed10.RData")
+hmc_fit_D100_N1_L1 <- readRDS("/Users/sarataheri/GitHub/LVMwithDoCalculus/Example1/hmc_fit_D100_N1_L1_parseed250_hmcseed10.RData")
+
+samples10_hid <- rstan::extract(hmc_fit_D10_N1_L1, c("theta_XY", "theta_UY", "mu"))
+samples50_hid <- rstan::extract(hmc_fit_D50_N1_L1, c("theta_XY", "theta_UY", "mu"))
+samples100_hid <- rstan::extract(hmc_fit_D100_N1_L1, c("theta_XY", "theta_UY", "mu"))
+```
+
+```{r}
+indexes = sample(length(samples100_hid$mu[,,1]), 100, replace = FALSE)
+y_grey = list()
+y_blue = list()
+y_green = list()
+mu_eta = c()
+for (i in 1:length(indexes)) {
+  j = indexes[i]
+  y_grey[[i]] = mutilated_model(mu = samples10_hid$mu[j],
+                                theta_XY = samples10_hid$theta_XY[j],
+                                theta_UY = samples10_hid$theta_UY[j],
+                                x = x)
+  y_blue[[i]] = mutilated_model(mu = samples50_hid$mu[j],
+                                theta_XY = samples50_hid$theta_XY[j],
+                                theta_UY = samples50_hid$theta_UY[j],
+                                x = x
+  )
+  y_green[[i]] = mutilated_model(mu = samples100_hid$mu[j],
+                                theta_XY = samples100_hid$theta_XY[j],
+                                theta_UY = samples100_hid$theta_UY[j],
+                                x = x)
+}
+```
+
+```{r}
+#png(file="example1Density.png",width=600, height=350)
+#par(mfrow = c(3,1))
+x_true_density <- seq(-50, 20, length = 1000)
+y_true_density <- dnorm(x_true_density, mean = mean_y_given_do_x, sd = std_y_given_do_x)
+
+png(file="example1Density1.png",width=600, height=350)
+plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = paste("# data points used for training = 10"), ylab = "", cex.lab = 3, cex.axis = 2.5, main = "P(Y|do(x'))", cex.main = 3, ylim = c(0,0.08), xlim = c(-50,50))
+title(ylab="", line=2.35, cex.lab=2.5)
+for (i in 1:length(indexes)) {
+  lines(density(y_grey[[i]]), lwd = 0.6, col = "grey")
+}
+dev.off()
+
+png(file="example1Density2.png",width=600, height=350)
+plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "# data points used for training = 50", ylab = "", cex.lab = 3, cex.axis = 2.5, main = "P(Y|do(x'))", cex.main = 3,ylim = c(0,0.08), xlim = c(-50,50))
+title(ylab="", line=2.35, cex.lab=2.5)
+for (i in 1:length(indexes)) {
+  lines(density(y_blue[[i]]), lwd = 0.6, col = "blue")
+}
+dev.off()
+
+png(file="example1Density3.png",width=600, height=350)
+plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "# data points used for training = 100", ylab = "", cex.lab = 3, cex.axis = 2.5, main = "P(Y|do(x'))", cex.main = 3, ylim = c(0,0.08), xlim = c(-50,50))
+title(ylab="", line=2.35, cex.lab=2.5)
+for (i in 1:length(indexes)) {
+  lines(density(y_green[[i]]), lwd = 0.6, col = "green")
+}
+#pdf(file = "example1Density.png", width = 7, height = 7)
+dev.off()
+
+```
+

@@ -17,6 +17,8 @@ knitr::opts_chunk$set(
 ```
 
 ```{r, warning=FALSE, message=FALSE, include=FALSE}
+# theta_M and theta_MY are identifiable: seed: 22, hmc_seed : 10
+# seed: 60
 source("training_data_and_true_params.R", local = knitr::knit_global())
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
@@ -30,7 +32,7 @@ rstan_options(auto_write = TRUE)
 ```{r}
 round(mu,2)
 round(theta_UX,2)
-round(theta_M,2)
+round(theta_XM,2)
 round(theta_UY,2)
 round(theta_MY,2)
 ```
@@ -64,7 +66,7 @@ data_list_with_hidden_confounder <- list(L=L, D=D, N =N, x = x_train, m = m_trai
 #     Sys.info()["sysname"] == "Darwin") {
 #   parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
 # }
-hmc_fit_with_hidden_confounder <- rstan::sampling(mod_with_hidden_confounder, data=data_list_with_hidden_confounder, chains = 2, iter = 3000, warmup = 1500, seed = 10, control = list(max_treedepth = 15)) #seed 10
+hmc_fit_with_hidden_confounder <- rstan::sampling(mod_with_hidden_confounder, data=data_list_with_hidden_confounder, chains = 2, iter = 3000, warmup = 1500, seed = 7, control = list(max_treedepth = 15)) #seed 7, change to 10
 ```
 
 
@@ -81,7 +83,7 @@ stan_trace(pars = "theta_UX", hmc_fit_with_hidden_confounder)
 ```
 
 ```{r}
-stan_trace(pars = "theta_M", hmc_fit_with_hidden_confounder)
+stan_trace(pars = "theta_XM", hmc_fit_with_hidden_confounder)
 ```
 
 ```{r}
@@ -95,23 +97,30 @@ stan_trace(pars = "theta_MY", hmc_fit_with_hidden_confounder)
 Now let's extract the samples:
 
 ```{r}
-samples_whc <- rstan::extract(hmc_fit_with_hidden_confounder, c("theta_UX", "theta_M", "theta_UY", "theta_MY", "mu","u_scale"))
+#hmc_fit_with_hidden_confounder <- readRDS(file = "hmc_fit_whc_D100_N1_L1_parseed20_hmcseed10.RData")
+samples_whc <- rstan::extract(hmc_fit_with_hidden_confounder, c("theta_UX", "theta_XM", "theta_UY", "theta_MY", "mu","u_scale"))
 
+print("mu")
 round(colMeans(samples_whc$mu),2)
 round(mu,2)
+print("theta_UX")
 round(colMeans(samples_whc$theta_UX),2)
 round(theta_UX,2)
-round(colMeans(samples_whc$theta_M),2)
-round(theta_M,2)
+print("theta_XM")
+round(colMeans(samples_whc$theta_XM),2)
+round(theta_XM,2)
+print("theta_UY")
 round(colMeans(samples_whc$theta_UY),2)
 round(theta_UY,2)
+print("theta_MY")
 round(colMeans(samples_whc$theta_MY),2)
 round(theta_MY,2)
+print("u_scale")
 round(colMeans(samples_whc$u_scale),2)
 round(Sigma_uu,2)
 ```
 
-$\theta_M$ and $\theta_MY$ parameters are estimated correctly! 
+$\theta_XM$ and $\theta_MY$ parameters are estimated correctly! 
 
 ```{r}
 #saveRDS(hmc_fit_with_hidden_confounder, "hmc_fit_whc_D100_N1_L1_parseed20_hmcseed10.RData")
@@ -131,7 +140,7 @@ $$P(Y | do(X = x)) \text{equal in dist} N(x \theta_{XM} \theta_{MY} + \mu \theta
 set.seed(seed)
 # generate x1
 x = mvtnorm::rmvnorm(n = 1, mean = mu %*% theta_UX, sigma = Sigma_xx)
-mean_y_given_do_x = x %*% theta_M %*% theta_MY + mu %*% theta_UY
+mean_y_given_do_x = x %*% theta_XM %*% theta_MY + mu %*% theta_UY
 var_y_given_do_x_alex = t(theta_MY) %*% theta_MY + t(theta_UY) %*% Sigma_uu %*% theta_UY + 1
 std_y_given_do_x_alex = sqrt(var_y_given_do_x_alex[1,1])
 mean_y_given_do_x
@@ -139,11 +148,11 @@ mean_y_given_do_x
 
 ```{r}
 # one dimensional
-mutilated_model <- function(mu, theta_M, theta_UY, theta_MY, x, num_samples = 1000, seed = 10) {
+mutilated_model <- function(mu, theta_XM, theta_UY, theta_MY, x, num_samples = 1000, seed = 10) {
   set.seed(seed)
   u = mvtnorm::rmvnorm(n = num_samples, mean = mu , sigma = diag(L)) 
   x = x
-  m = matrix(x, nrow = num_samples, ncol = N, byrow = TRUE) %*% theta_M + matrix(rnorm(n = num_samples, mean = 0, sd = 1), nrow = num_samples, ncol = 1)
+  m = matrix(x, nrow = num_samples, ncol = N, byrow = TRUE) %*% theta_XM + matrix(rnorm(n = num_samples, mean = 0, sd = 1), nrow = num_samples, ncol = 1)
   y = matrix(m, nrow = num_samples, ncol = 1) %*% theta_MY + matrix(u, nrow = num_samples, ncol = L) %*% theta_UY + matrix(rnorm(n = num_samples, mean = 0, sd = 1), nrow = num_samples, ncol = 1)
   return(y)
   #return(density(y))
@@ -158,54 +167,11 @@ mutilated_model <- function(mu, theta_M, theta_UY, theta_MY, x, num_samples = 10
 hmc_fit_whc_D10_N1_L1_parseed20_hmcseed10 <- readRDS("hmc_fit_whc_D10_N1_L1_parseed20_hmcseed10.RData")
 hmc_fit_whc_D50_N1_L1_parseed20_hmcseed10 <- readRDS("hmc_fit_whc_D50_N1_L1_parseed20_hmcseed10.RData")
 hmc_fit_whc_D100_N1_L1_parseed20_hmcseed10 <- readRDS("hmc_fit_whc_D100_N1_L1_parseed20_hmcseed10.RData")
-samples10_hid <- rstan::extract(hmc_fit_whc_D10_N1_L1_parseed20_hmcseed10, c("theta_UX", "theta_M", "theta_UY", "theta_MY", "mu", "u_scale"))
-samples50_hid <- rstan::extract(hmc_fit_whc_D50_N1_L1_parseed20_hmcseed10, c("theta_UX", "theta_M", "theta_UY", "theta_MY", "mu", "u_scale"))
-samples100_hid <- rstan::extract(hmc_fit_whc_D100_N1_L1_parseed20_hmcseed10, c("theta_UX", "theta_M", "theta_UY", "theta_MY", "mu", "u_scale"))
+samples10_hid <- rstan::extract(hmc_fit_whc_D10_N1_L1_parseed20_hmcseed10, c("theta_UX", "theta_XM", "theta_UY", "theta_MY", "mu", "u_scale"))
+samples50_hid <- rstan::extract(hmc_fit_whc_D50_N1_L1_parseed20_hmcseed10, c("theta_UX", "theta_XM", "theta_UY", "theta_MY", "mu", "u_scale"))
+samples100_hid <- rstan::extract(hmc_fit_whc_D100_N1_L1_parseed20_hmcseed10, c("theta_UX", "theta_XM", "theta_UY", "theta_MY", "mu", "u_scale"))
 ```
 
-Distribution of samples of $\mu \times \theta_UY$:
-
-```{r}
-seed = 3
-y_grey = mutilated_model(mu = mean(samples100_hid$mu),
-                        theta_M = mean(samples100_hid$theta_M),
-                        theta_UY = mean(samples100_hid$theta_UY),
-                        theta_MY = mean(samples100_hid$theta_MY),
-                        x = x,
-                        seed = seed)
-
-# y_true = mutilated_model(mu = mu,
-#                         theta_M = theta_M,
-#                         theta_UY = theta_UY,
-#                         theta_MY = theta_MY,
-#                         x = x
-#   )
-y_true = rnorm(1000, x*theta_M*theta_MY + mu*theta_UY, sqrt(theta_MY*theta_MY + theta_UY*theta_UY + 1))
-
-
-df <- data.frame(type = c(rep("True distribution",length(y_grey)),rep("LVM-based estimate",length(y_grey))),
-                 value = c(y_true, y_grey))
-pp <- df %>% ggplot( aes(x=value, fill=type, color = type)) +
-    geom_histogram(color="#e9ecef", alpha=0.6, position = 'identity', bins = 20) + 
-  theme(panel.grid.major = element_blank(),
-          panel.grid.minor = element_blank(),
-          panel.background = element_blank(),
-          axis.line = element_line(colour = "black"),
-          legend.title = element_text(color = "black", size = 18, face = "bold"),
-          legend.text = element_text(color = "black", size = 20, face = "bold"),
-          axis.text=element_text(size=30),
-          axis.title.y = element_text(size=30,face="bold"),
-          axis.title.x= element_text(size=30,face="bold"),
-          axis.title=element_text(size=18,face="bold"),
-          plot.title = element_text(size = 30, hjust = 0.5, face = "bold"),
-          legend.position = "top"
-          ) +
-    guides(fill=guide_legend(title="Distribution of P(Y|do(x))", nrow=3)) +
-    xlab("Samples")
-pp
-
-#ggsave("distOverY.pdf", plot = pp, width = 7, height = 7, dpi = 300, units = "in")
-```
 
 ```{r}
 indexes = sample(length(samples100_hid$mu[,,1]), 100, replace = FALSE)
@@ -216,18 +182,18 @@ mu_eta = c()
 for (i in 1:length(indexes)) {
   j = indexes[i]
   y_grey[[i]] = mutilated_model(mu = samples10_hid$mu[j],
-                                theta_M = samples10_hid$theta_M[j],
+                                theta_XM = samples10_hid$theta_XM[j],
                                 theta_UY = samples10_hid$theta_UY[j],
                                 theta_MY = samples10_hid$theta_MY[j],
                                 x = x)
   y_blue[[i]] = mutilated_model(mu = samples50_hid$mu[j],
-                                theta_M = samples50_hid$theta_M[j],
+                                theta_XM = samples50_hid$theta_XM[j],
                                 theta_UY = samples50_hid$theta_UY[j],
                                 theta_MY = samples50_hid$theta_MY[j],
                                 x = x
   )
   y_green[[i]] = mutilated_model(mu = samples100_hid$mu[j],
-                                theta_M = samples100_hid$theta_M[j],
+                                theta_XM = samples100_hid$theta_XM[j],
                                 theta_UY = samples100_hid$theta_UY[j],
                                 theta_MY = samples100_hid$theta_MY[j],
                                 x = x)
@@ -237,28 +203,32 @@ for (i in 1:length(indexes)) {
 ```
 
 ```{r}
-par(mfrow = c(3,1))
+#png(file="example2Density.png",width=600, height=350)
+#par(mfrow = c(3,1))
 x_true_density <- seq(-160,-50, length = 1000)
 y_true_density <- dnorm(x_true_density, mean = mean_y_given_do_x, sd = std_y_given_do_x_alex)
 
-#pdf(file = "D65UUnObserved.pdf", width = 4, height = 4)
-plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "D = 65, U is unobserved", ylab = "", cex.lab = 2, cex.axis = 1.5, main = "", cex.main = 2)
-title(ylab="P(Y|do(x))", line=2.35, cex.lab=2)
+png(file="example2Density1.png",width=600, height=350)
+plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "# data points used for training = 10", ylab = "", cex.lab = 3, cex.axis = 2.5, main = "P(Y|do(x'))", cex.main = 3, ylim = c(0,0.08))
+title(ylab="", line=2.35, cex.lab=2.5)
 for (i in 1:length(indexes)) {
-  lines(density(y_grey[[i]]), lwd = 0.2, col = "grey")
+  lines(density(y_grey[[i]]), lwd = 0.6, col = "grey")
 }
+dev.off()
 
-plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "D = 80, U is unobserved", ylab = "", cex.lab = 2, cex.axis = 1.5, main = "", cex.main = 2)
-title(ylab="P(Y|do(x))", line=2.35, cex.lab=2)
+png(file="example2Density2.png",width=600, height=350)
+plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "# data points used for training = 50", ylab = "", cex.lab = 3, cex.axis = 2.5, main = "P(Y|do(x'))", cex.main = 3, ylim = c(0,0.08))
+title(ylab="", line=2.35, cex.lab=2.5)
 for (i in 1:length(indexes)) {
-  lines(density(y_blue[[i]]), lwd = 0.2, col = "blue")
+  lines(density(y_blue[[i]]), lwd = 0.6, col = "blue")
 }
+dev.off()
 
-#pdf(file = "D200UUnObserved.pdf", width = 7, height = 7)
-plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "D = 200, U is unobserved", ylab = "", cex.lab = 2, cex.axis = 1.5, main = "", cex.main = 2)
-title(ylab="P(Y|do(x))", line=2.35, cex.lab=2)
+png(file="example2Density3.png",width=600, height=350)
+plot(x = x_true_density, y = y_true_density, lwd = 0.6, col = "black", xlab = "# data points used for training = 100", ylab = "", cex.lab = 3, cex.axis = 2.5, main = "P(Y|do(x'))", cex.main = 3, ylim = c(0,0.08))
+title(ylab="", line=2.35, cex.lab=2.5)
 for (i in 1:length(indexes)) {
-  lines(density(y_green[[i]]), lwd = 0.2, col = "green")
+  lines(density(y_green[[i]]), lwd = 0.6, col = "green")
 }
 dev.off()
 

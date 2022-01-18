@@ -8,11 +8,11 @@ library(usethis)
 library(reshape2)
 library(ggplot2)
 
-#seed = 234
+#seed = 60
 seed = 20 #250 #252 #254
 set.seed(seed)
 L = 1
-D = 10 #50 $100
+D = 10 #50 $10
 N = 1
 
 #create the true parameters
