@@ -13,7 +13,7 @@ __all__ = [
 ]
 
 HERE = Path(__file__).parent.resolve()
-RESULTS = HERE.joinpath("results")
+RESULTS = HERE.parent.resolve().joinpath("results")
 RESULTS.mkdir(exist_ok=True, parents=True)
 FRONT_DOOR_DIRECTORY = RESULTS.joinpath("front_door")
 FRONT_DOOR_DIRECTORY.mkdir(exist_ok=True, parents=True)
