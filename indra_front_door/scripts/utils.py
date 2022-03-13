@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import click
 import pandas as pd
 from tqdm import tqdm
 
@@ -8,17 +7,28 @@ from y0.algorithm.falsification import get_graph_falsifications
 from y0.graph import NxMixedGraph
 from y0.simulation import simulate
 
+__all__ = [
+    "HERE",
+    "run_simulation",
+]
+
 HERE = Path(__file__).parent.resolve()
+RESULTS = HERE.joinpath("results")
+RESULTS.mkdir(exist_ok=True, parents=True)
+FRONT_DOOR_DIRECTORY = RESULTS.joinpath("front_door")
+FRONT_DOOR_DIRECTORY.mkdir(exist_ok=True, parents=True)
+
+GRAPHS_NAME = "graphs.tsv"
+DATA_NAME = "data.tsv"
+FALSIFICATIONS_NAME = "falsifications.tsv"
 
 
-@click.command()
-@click.option("--trials", type=int, default=1000, show_default=True)
-def main(trials: int):
-    df = pd.read_csv(HERE.joinpath("indra_front_door.tsv"), sep="\t")
+def run_simulation(*, path: Path, directory: Path, trials: int = 1000):
+    df = pd.read_csv(path, sep="\t")
     simuation_rows = []
     falsification_rows = []
     for i, (u, x, m, y, *_) in enumerate(
-        tqdm(df.values, desc="Front door simulation", unit="motif")
+        tqdm(df.values, desc="Simulation", unit="motif")
     ):
         graph = NxMixedGraph.from_str_edges(
             directed=[
@@ -49,15 +59,11 @@ def main(trials: int):
         ],
     )
     simulation_combine_df.to_csv(
-        HERE.joinpath("simulated_data.tsv"), sep="\t", index=False
+        directory.joinpath(DATA_NAME), sep="\t", index=False
     )
     falsification_combine_df = pd.DataFrame(
         falsification_rows, columns=["index", *falsification_results.evidence.columns]
     )
     falsification_combine_df.to_csv(
-        HERE.joinpath("simulated_falsifications.tsv"), sep="\t", index=False
+        directory.joinpath(FALSIFICATIONS_NAME), sep="\t", index=False
     )
-
-
-if __name__ == "__main__":
-    main()

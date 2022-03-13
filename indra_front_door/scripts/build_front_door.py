@@ -1,17 +1,16 @@
-from pathlib import Path
-from typing import Optional
-
 import click
 import pandas as pd
 from indra_cogex.client import Neo4jClient
 
+from utils import FRONT_DOOR_DIRECTORY, GRAPHS_NAME
+
+PATH = FRONT_DOOR_DIRECTORY.joinpath(GRAPHS_NAME)
 columns = ["u", "x", "m", "y", "r1.belief", "r2.belief", "r3.belief", "r4.belief"]
 
 
 @click.command()
 @click.option("--minimum-evidence", type=int, default=5, show_default=True)
-@click.option("--output", type=Path)
-def main(minimum_evidence: int, output: Optional[Path]):
+def main(minimum_evidence: int):
     client = Neo4jClient()
     query = f"""\
     MATCH p=(u:BioEntity)
@@ -51,7 +50,7 @@ def main(minimum_evidence: int, output: Optional[Path]):
     """
     res = client.query_tx(query)
     df = pd.DataFrame(res, columns=columns)
-    df.to_csv(output, sep="\t", index=False)
+    df.to_csv(PATH, sep="\t", index=False)
 
 
 if __name__ == '__main__':
